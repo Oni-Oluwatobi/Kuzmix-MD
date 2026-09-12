@@ -1,0 +1,6 @@
+{
+  "name": "Kuzmix-MD Studio",
+  "description": "Official configuration generator, Baileys MD engine, command manager, and OpenRouter AI text-to-image and video studio for Kuzmix-MD WhatsApp bot.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

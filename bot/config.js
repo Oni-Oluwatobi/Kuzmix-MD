@@ -23,7 +23,7 @@ module.exports = {
     .filter(Boolean),
 
   mode: process.env.BOT_MODE || 'public',
-  unknownCommandMode: process.env.UNKNOWN_MODE || 'silent',
+  unknownCommandMode: process.env.UNKNOWN_MODE || 'notify',
   sessionDir: sessionDirectory,
   logLevel: process.env.LOG_LEVEL || 'silent',
   reconnectMaxRetries: 10,

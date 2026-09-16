@@ -44,6 +44,8 @@ async function handleMessage(sock, m) {
     const prefix = config.prefix || '.';
     const isCommand = body.startsWith(prefix);
 
+    console.log(`[KUZMIX MSG] ${isGroup ? 'GROUP' : 'DM'} from=${from} sender=${rawSender} cmd=${isCommand} body="${body.slice(0, 50)}"`);
+
     const reply = async (text, options = {}) => {
       return sock.sendMessage(from, { text, ...options }, { quoted: msg });
     };

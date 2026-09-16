@@ -42,12 +42,17 @@ async function startBot() {
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', (update) => {
+    if (update.connection === 'open') {
+      console.log('[KUZMIX] 🟢 Socket connected — listening for messages...');
+    }
     connectionHandler.handleUpdate(update, () => {
       startBot().catch(err => console.error('[KUZMIX RESTART ERROR]', err));
     });
   });
 
   sock.ev.on('messages.upsert', (m) => {
+    // Only process new incoming messages, not history loads
+    if (m.type !== 'notify') return;
     handleMessage(sock, m).catch(err => console.error('[KUZMIX MSG ERROR]', err));
   });
 

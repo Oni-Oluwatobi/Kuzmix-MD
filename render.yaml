@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: kuzmix-md-studio
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && cd pairing-portal && npm install --include=dev && npm run build && cd ..
+    startCommand: node unified.js
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: WS_NO_BUFFER_UTIL
+        value: '1'
+      - key: GROUP_INVITE_CODE
+        value: 'IbvPjkzu0Rq69XgmwiAHMA'
+      - key: NODE_ENV
+        value: production
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false

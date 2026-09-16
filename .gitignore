@@ -1,0 +1,13 @@
+node_modules/
+.next/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+temp_sessions/
+bot/session/
+bot/*.db
+tsconfig.tsbuildinfo
+bun.lock
+.reflex/

@@ -1,0 +1,25 @@
+{
+  "users": {},
+  "groups": {},
+  "settings": {},
+  "commandStats": {
+    "ping": 13,
+    "say": 2,
+    "vv": 2,
+    "owner": 2,
+    "cred": 2,
+    "unknown": 3,
+    "menu": 9,
+    "ai": 5,
+    "play": 3,
+    "imagine": 1,
+    "video": 1,
+    "rank": 1,
+    "leaderboard": 1,
+    "dice": 1,
+    "link": 1,
+    "pair": 1,
+    "system": 1,
+    "group": 2
+  }
+}

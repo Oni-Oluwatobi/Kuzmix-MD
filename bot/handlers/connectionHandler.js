@@ -95,20 +95,28 @@ class ConnectionHandler {
       }
 
       this.reconnectAttempts++;
-      if (this.reconnectAttempts > this.maxRetries) {
-        console.error(`[KUZMIX] ❌ Reconnect failed after ${this.maxRetries} attempts.`);
-        return;
-      }
 
       const isRestart = statusCode === DisconnectReason.restartRequired || statusCode === 515;
-      const delayMs = isRestart
-        ? 0
-        : Math.min(config.reconnectBaseDelayMs * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
-      console.log(
-        isRestart
-          ? `[KUZMIX] 🔄 Reconnecting immediately with new session credentials...`
-          : `[KUZMIX] 🔄 Reconnecting attempt (${this.reconnectAttempts}/${this.maxRetries}) in ${Math.round(delayMs / 1000)}s...`
-      );
+      let delayMs;
+
+      if (isRestart) {
+        delayMs = 0;
+      } else if (this.reconnectAttempts <= this.maxRetries) {
+        // Normal backoff: 3s, 4.5s, 6.75s ... up to 30s
+        delayMs = Math.min(config.reconnectBaseDelayMs * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
+      } else {
+        // After max retries, keep trying but with 60s cooldown
+        delayMs = 60000;
+        console.log(`[KUZMIX] 🔄 Reconnect attempt ${this.reconnectAttempts} — retrying in 60s...`);
+      }
+
+      if (!isRestart) {
+        console.log(
+          `[KUZMIX] 🔄 Reconnecting attempt ${this.reconnectAttempts} in ${Math.round(delayMs / 1000)}s...`
+        );
+      } else {
+        console.log(`[KUZMIX] 🔄 Reconnecting immediately with new session credentials...`);
+      }
 
       setTimeout(() => {
         if (typeof onRestartCallback === 'function') onRestartCallback();

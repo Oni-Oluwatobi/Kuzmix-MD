@@ -33,6 +33,7 @@ function startBotWithRetry() {
       restartCount = 0;
       botRunning = true;
       console.log('[KUZMIX] Bot started successfully');
+      startWatchdog();
     })
     .catch((err) => {
       console.error('[KUZMIX FATAL ERROR ON STARTUP]', err.message);
@@ -78,6 +79,24 @@ function watchForSession() {
   console.log('[KUZMIX] 👀 Watching for session files in: ' + sessionDir);
 }
 
+// Watchdog: if bot was running but socket died silently, restart
+let watchdogRunning = false;
+function startWatchdog() {
+  if (watchdogRunning) return;
+  watchdogRunning = true;
+  const { getSocket } = require('./bot');
+  setInterval(() => {
+    if (!botRunning) return;
+    const sock = getSocket();
+    if (!sock || !sock.user) {
+      console.log('[KUZMIX] ⚠️  Watchdog: socket lost — restarting...');
+      botRunning = false;
+      restartCount = 0;
+      startBotWithRetry();
+    }
+  }, 30000);
+}
+
 // Only auto-start if run directly (not when required by unified.js)
 if (require.main === module) {
   const { isSessionValid } = require('./lib/helpers');
@@ -93,4 +112,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { startBotWithRetry, watchForSession };
+module.exports = { startBotWithRetry, watchForSession, startWatchdog };

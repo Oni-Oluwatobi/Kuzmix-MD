@@ -54,7 +54,7 @@ const app = next({ dev: useDev, dir: PORTAL_DIR });
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
-  createServer((req, res) => {
+  const server = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
     handle(req, res, parsedUrl);
   }).listen(PORT, '0.0.0.0', () => {
@@ -63,4 +63,22 @@ app.prepare().then(() => {
     console.log('');
     console.log('[BOOT] Both services are now running!');
   });
+
+  // Graceful shutdown — close server + bot socket before exiting
+  function gracefulShutdown(signal) {
+    console.log(`[BOOT] ${signal} received — shutting down gracefully...`);
+    server.close(() => {
+      try {
+        const { getSocket } = require('./bot/bot');
+        const sock = getSocket();
+        if (sock && typeof sock.end === 'function') sock.end(undefined);
+      } catch (_) {}
+      setTimeout(() => process.exit(0), 1000);
+    });
+    // Force exit after 5s if graceful shutdown hangs
+    setTimeout(() => process.exit(1), 5000);
+  }
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 });

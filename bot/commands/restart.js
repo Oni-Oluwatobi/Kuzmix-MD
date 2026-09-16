@@ -14,23 +14,22 @@ module.exports = {
   permission: 'owner',
 
   async execute(ctx) {
-    const { sock, msg, from, reply, args, isGroup, isOwner, sender, config, database } = ctx;
-    const { getJson, getBuffer } = require('../lib/httpClient');
-    const name = 'restart';
-    const desc = 'Safely restart the Kuzmix-MD Node.js instance';
-    const syntax = '.restart';
-    const example = '.restart';
-    const nameUpper = 'RESTART';
+    const { sock, msg, from, reply, isOwner, config } = ctx;
 
-    
     if (!isOwner) {
       return reply('⛔ *Access Denied:* This command is restricted to the bot owner.');
     }
 
-    
-    await reply('🔄 *Restarting Kuzmix-MD Node.js instance...*');
-    setTimeout(() => process.exit(0), 1000);
-    
+    await reply('🔄 *Restarting Kuzmix-MD...*');
 
+    // Gracefully close the socket before exiting
+    try {
+      if (sock && typeof sock.end === 'function') {
+        sock.end(undefined);
+      }
+    } catch (_) {}
+
+    // Give the message time to send, then exit — Render/PM2 will restart
+    setTimeout(() => process.exit(0), 2000);
   }
 };

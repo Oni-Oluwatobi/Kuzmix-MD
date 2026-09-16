@@ -11,6 +11,14 @@ const { handleMessage } = require('./handlers/messageHandler');
 let currentSocket = null;
 
 async function startBot() {
+  // Close old socket if reconnecting
+  if (currentSocket) {
+    try {
+      currentSocket.end(undefined);
+    } catch (_) {}
+    currentSocket = null;
+  }
+
   console.log(`[KUZMIX] Loading bot session from: ${config.sessionDir}`);
 
   // Load commands

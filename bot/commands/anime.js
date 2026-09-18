@@ -1,14 +1,14 @@
 /**
  * Kuzmix-MD Command: .anime
  * Category: aimedia
- * Description: Anime-style image generator using FLUX.1 model
+ * Description: Anime-style image generator
  */
 
 module.exports = {
   name: 'anime',
   aliases: [],
   category: 'aimedia',
-  description: 'Anime-style image generator using FLUX.1 model',
+  description: 'Anime-style image generator',
   usage: '.anime magical girl casting a spell in cherry blossom forest',
   example: '.anime magical girl casting a spell in cherry blossom forest',
   permission: 'everyone',
@@ -20,10 +20,10 @@ module.exports = {
     const prompt = args.join(' ').trim();
     if (!prompt) {
       return reply(
-        `🎌 *Anime Image Generator (.anime)*\n\n` +
+        `🎌 *Anime Image Generator*\n\n` +
         `Usage: \`.anime <prompt>\`\n` +
         `Example: \`.anime magical girl casting a spell in cherry blossom forest\`\n\n` +
-        `_Anime/manga style via FLUX.1._`
+        `_${config.watermark}_`
       );
     }
 
@@ -31,19 +31,16 @@ module.exports = {
 
     try {
       const enhanced = prompt + ', anime manga style, vibrant colors, detailed illustration, studio ghibli inspired';
-      const imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhanced)}?width=1024&height=1024&model=flux&nologo=true&seed=${Date.now()}`;
-      const buffer = await getBuffer(imgUrl, { timeout: 30000 });
+      const seed = Math.floor(Math.random() * 999999);
+      const imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(enhanced)}?width=1024&height=1024&nologo=true&seed=${seed}`;
+      const buffer = await getBuffer(imgUrl, { timeout: 60000 });
 
       if (!buffer || buffer.length < 1000) {
         throw new Error('Received empty or invalid image');
       }
 
       const caption =
-        `╔═════『 *ANIME IMAGE GENERATOR* 』═════\n` +
-        `┃ 🎌 *Prompt:* ${prompt}\n` +
-        `┃ ⚡ *Model:* FLUX.1 Anime (Pollinations.ai)\n` +
-        `┃ 📐 *Resolution:* 1024×1024 px\n` +
-        `╚══════════════════════════════════════\n\n` +
+        `🎌 *Prompt:* ${prompt}\n\n` +
         `_${config.watermark}_`;
 
       return await sock.sendMessage(from, { image: buffer, caption }, { quoted: msg });

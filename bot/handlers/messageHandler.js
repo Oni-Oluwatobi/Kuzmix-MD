@@ -25,6 +25,23 @@ function extractMessageText(msg) {
   );
 }
 
+/**
+ * Try to find a command name inside a sentence (without prefix).
+ * Returns { command, args } or null.
+ */
+function detectCommandInSentence(text, commandHandler) {
+  const words = text.toLowerCase().split(/\s+/);
+  for (let i = 0; i < words.length; i++) {
+    const clean = words[i].replace(/[^a-z0-9]/g, '');
+    const cmd = commandHandler.getCommand(clean);
+    if (cmd) {
+      const args = words.slice(i + 1);
+      return { command: clean, args, cmd };
+    }
+  }
+  return null;
+}
+
 async function handleMessage(sock, m) {
   try {
     if (!m.messages || !m.messages[0]) return;
@@ -42,9 +59,7 @@ async function handleMessage(sock, m) {
     if (!body) return;
 
     const prefix = config.prefix || '.';
-    const isCommand = body.startsWith(prefix);
-
-    console.log(`[KUZMIX MSG] ${isGroup ? 'GROUP' : 'DM'} from=${from} sender=${rawSender} cmd=${isCommand} body="${body.slice(0, 50)}"`);
+    const dmMode = config.unknownCommandMode === 'private';
 
     const senderNumber = String(rawSender || '').split('@')[0].split(':')[0].replace(/\D/g, '');
     const isOwner = fromMe || (Array.isArray(config.owner) && config.owner.some(o => String(o).replace(/\D/g, '') === senderNumber));
@@ -58,90 +73,109 @@ async function handleMessage(sock, m) {
     if (config.mode === 'private' && isGroup && !isOwner) return;
     if (config.mode === 'groups-only' && !isGroup && !isOwner) return;
 
-    // Reply function: if unknown mode is 'dm', send unknown responses to user DM
-    const reply = async (text, options = {}) => {
-      return sock.sendMessage(from, { text, ...options }, { quoted: msg });
-    };
-
-    // DM reply: always sends to the user's direct message
+    // DM reply: always sends to user's DM (for dmMode)
     const replyDM = async (text) => {
       const userJid = rawSender || from;
       try {
         await sock.sendMessage(userJid, { text });
       } catch (_) {
-        // Fallback to chat if DM fails
-        await reply(text);
+        // If DM fails and we're in a DM already, send normally
+        if (!isGroup) {
+          await sock.sendMessage(from, { text }, { quoted: msg });
+        }
       }
     };
 
-    if (isCommand) {
-      const trimmedBody = body.slice(prefix.length).trim();
-      const args = trimmedBody.split(/\s+/);
-      const commandTrigger = args.shift()?.toLowerCase() || '';
-
-      if (!commandTrigger) return;
-
-      const cmd = commandHandler.getCommand(commandTrigger);
-
-      if (cmd) {
-        if (cmd.permission === 'owner' && !isOwner) {
-          return reply('⛔ *Access Denied*: This command is reserved exclusively for the bot owner.');
-        }
-
-        database.incrementCommandStat(cmd.name);
-
-        const ctx = {
-          sock,
-          msg,
-          from,
-          sender: rawSender,
-          senderNumber,
-          isGroup,
-          isOwner,
-          fromMe,
-          command: cmd.name,
-          args,
-          body,
-          reply,
-          replyDM,
-          config,
-          database,
-        };
-
-        try {
-          await cmd.execute(ctx);
-        } catch (execErr) {
-          console.error(`[KUZMIX] Error executing .${cmd.name}:`, execErr);
-          await reply(`⚠️ *Error executing .${cmd.name}*: ${execErr.message}`);
-        }
-      } else {
-        // Unknown command handling
-        const mode = config.unknownCommandMode || 'notify';
-
-        if (mode === 'private') {
-          // Send unknown command response to user DM only
-          await replyDM(`❓ *Unknown Command*: \`${prefix}${commandTrigger}\` is not recognized.\nType \`${prefix}menu\` for available commands.`);
-        } else if (mode === 'notify') {
-          await reply(`❓ *Unknown Command*: \`${prefix}${commandTrigger}\` is not recognized.\nType \`${prefix}menu\` for available commands.`);
-        } else if (mode === 'help') {
-          await reply(`🤖 *${config.botName} Unknown Command*\nCommand: \`${prefix}${commandTrigger}\`\n\nType \`${prefix}menu\` to explore commands.`);
-        } else if (mode === 'ai' && (config.geminiApiKey || process.env.GEMINI_API_KEY)) {
-          try {
-            const { GoogleGenAI } = require('@google/genai');
-            const apiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
-            const ai = new GoogleGenAI({ apiKey });
-            const prompt = `You are ${config.botName}, developed by ${config.developerName}. Answer this briefly: ${body.slice(prefix.length)}`;
-            const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash',
-              contents: prompt,
-            });
-            await reply(`✨ *${config.botName} AI:*\n\n${response.text}`);
-          } catch (aiErr) {
-            console.error('[KUZMIX AI] Error:', aiErr.message);
-          }
-        }
-        // mode === 'silent' = do nothing
+    // Normal reply: sends in chat, or to DM if dmMode is on
+    const reply = async (text, options = {}) => {
+      if (dmMode && !isOwner) {
+        return replyDM(text);
       }
+      return sock.sendMessage(from, { text, ...options }, { quoted: msg });
+    };
+
+    console.log(`[KUZMIX MSG] ${isGroup ? 'GROUP' : 'DM'} from=${from} sender=${rawSender} body="${body.slice(0, 50)}"`);
+
+    // --- 1. Check for prefix command (.play something) ---
+    const isPrefixed = body.startsWith(prefix);
+    let commandTrigger = '';
+    let args = [];
+
+    if (isPrefixed) {
+      const trimmedBody = body.slice(prefix.length).trim();
+      const parts = trimmedBody.split(/\s+/);
+      commandTrigger = parts.shift()?.toLowerCase() || '';
+      args = parts;
+    } else {
+      // --- 2. Try to detect command in sentence (play something / hey bot play song) ---
+      const detected = detectCommandInSentence(body, commandHandler);
+      if (detected) {
+        commandTrigger = detected.command;
+        args = detected.args;
+      }
+    }
+
+    if (!commandTrigger) return;
+
+    const cmd = commandHandler.getCommand(commandTrigger);
+
+    if (cmd) {
+      if (cmd.permission === 'owner' && !isOwner) {
+        return reply('⛔ *Access Denied*: This command is reserved exclusively for the bot owner.');
+      }
+
+      database.incrementCommandStat(cmd.name);
+
+      const ctx = {
+        sock,
+        msg,
+        from,
+        sender: rawSender,
+        senderNumber,
+        isGroup,
+        isOwner,
+        fromMe,
+        command: cmd.name,
+        args,
+        body,
+        reply,
+        replyDM,
+        config,
+        database,
+      };
+
+      try {
+        await cmd.execute(ctx);
+      } catch (execErr) {
+        console.error(`[KUZMIX] Error executing .${cmd.name}:`, execErr);
+        await reply(`⚠️ *Error executing .${cmd.name}*: ${execErr.message}`);
+      }
+    } else {
+      // Unknown command handling
+      const mode = config.unknownCommandMode || 'notify';
+
+      if (mode === 'private') {
+        await replyDM(`❓ *Unknown Command*: \`${commandTrigger}\` is not recognized.\nType \`menu\` for available commands.`);
+      } else if (mode === 'notify') {
+        await reply(`❓ *Unknown Command*: \`${prefix}${commandTrigger}\` is not recognized.\nType \`${prefix}menu\` for available commands.`);
+      } else if (mode === 'help') {
+        await reply(`🤖 *${config.botName} Unknown Command*\nCommand: \`${prefix}${commandTrigger}\`\n\nType \`${prefix}menu\` to explore commands.`);
+      } else if (mode === 'ai' && (config.geminiApiKey || process.env.GEMINI_API_KEY)) {
+        try {
+          const { GoogleGenAI } = require('@google/genai');
+          const apiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
+          const ai = new GoogleGenAI({ apiKey });
+          const prompt = `You are ${config.botName}, developed by ${config.developerName}. Answer this briefly: ${body}`;
+          const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+          });
+          await reply(`✨ *${config.botName} AI:*\n\n${response.text}`);
+        } catch (aiErr) {
+          console.error('[KUZMIX AI] Error:', aiErr.message);
+        }
+      }
+      // mode === 'silent' = do nothing
     }
   } catch (err) {
     console.error('[KUZMIX] Message handler error:', err);

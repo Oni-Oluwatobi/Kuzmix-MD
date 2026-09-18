@@ -25,11 +25,11 @@ module.exports = {
     
     
     return reply(
-      `╔═════『 *KUZMIX OS & PROTOCOL SPEC* 』═════\n` +
-      `🌌 *Ecosystem:* Kuzmix Multi-Device Architecture\n` +
+      `╔═════『 *KUZMIX MD & PROTOCOL SPEC* 』═════\n` +
+      `🌌 *Ecosystem:* The-Kreadive-Galaxy\n` +
       `🔌 *Socket Protocol:* Baileys WebSocket Noise Handshake\n` +
       `🛡️ *Security Layer:* AES-CBC session key credentials\n` +
-      `📱 *Companion Platform:* Kuzmix OS Launcher & KC Customization\n` +
+      `📱 *Companion Platform:* Kc Studio IDE\n` +
       `👨‍💻 *Developer:* ${config.developerName}\n` +
       `🏢 *Organization:* ${config.organization}\n` +
       `╚════════════════════════════════════════════\n\n` +

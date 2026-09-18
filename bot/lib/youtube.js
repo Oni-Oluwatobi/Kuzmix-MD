@@ -1,7 +1,7 @@
 /**
  * Kuzmix-MD YouTube Audio Engine
- * Uses yt-search for discovery and @distube/ytdl-core for audio streaming.
- * No ffmpeg required — WhatsApp transcodes audio server-side before delivery.
+ * Uses yt-search for discovery and youtubei.js (InnerTube) for streaming.
+ * InnerTube doesn't trigger YouTube's anti-bot — works from cloud servers.
  */
 
 let ytSearch = null;
@@ -11,11 +11,25 @@ try {
   ytSearch = require('../node_modules/yt-search');
 }
 
-let ytdl = null;
+let Innertube = null;
 try {
-  ytdl = require('@distube/ytdl-core');
+  Innertube = require('youtubei.js').Innertube;
 } catch (_) {
-  ytdl = require('../node_modules/@distube/ytdl-core');
+  try {
+    Innertube = require('../node_modules/youtubei.js').Innertube;
+  } catch (_) {}
+}
+
+let ytInstance = null;
+
+async function getYT() {
+  if (!Innertube) {
+    throw new Error('youtubei.js not installed. Run: npm install youtubei.js');
+  }
+  if (!ytInstance) {
+    ytInstance = await Innertube.create({ retrieve_player: false });
+  }
+  return ytInstance;
 }
 
 async function streamToBuffer(stream) {
@@ -26,25 +40,9 @@ async function streamToBuffer(stream) {
   return Buffer.concat(chunks);
 }
 
-function pickAudioFormat(info) {
-  const formats = Array.isArray(info.formats) ? info.formats : [];
-  const audioOnly = formats.filter((f) => f.hasAudio && !f.hasVideo);
-
-  if (audioOnly.length === 0) {
-    throw new Error('No audio-only stream was returned by YouTube for this video.');
-  }
-
-  // WhatsApp-preferable: m4a/AAC in mp4 container first
-  const m4a = audioOnly.find((f) => f.container === 'm4a') || audioOnly.find((f) => f.mimetype && f.mimetype.includes('audio/mp4'));
-  if (m4a) return { ...m4a, mimetype: 'audio/mp4' };
-
-  // Otherwise opus in webm — WhatsApp transcodes server-side
-  return { ...audioOnly[0], mimetype: 'audio/mp4' };
-}
-
 async function searchYoutubeAudio(query) {
-  if (!ytSearch || !ytdl) {
-    throw new Error('YouTube engine unavailable. Run `npm install --ignore-scripts yt-search @distube/ytdl-core` in the bot folder.');
+  if (!ytSearch) {
+    throw new Error('yt-search not installed. Run: npm install yt-search');
   }
 
   const searchRes = await ytSearch(query);
@@ -52,38 +50,50 @@ async function searchYoutubeAudio(query) {
     (v) => v && v.videoId
   );
 
-  // Prefer videos with length >= 60s (skip livestreams/shorts) but accept any real match
   const video =
     videos.find((v) => v.videoId && +v.seconds >= 60) ||
     videos.find((v) => v.videoId) ||
     null;
 
   if (!video) {
-    throw new Error(`No YouTube results found for query: "${query}"`);
+    throw new Error(`No YouTube results found for: "${query}"`);
   }
 
   const url = `https://www.youtube.com/watch?v=${video.videoId}`;
-  const info = await ytdl.getInfo(url, { requestOptions: { headers: { 'Accept-Language': 'en-US,en;q=0.9' } } });
-
-  const format = pickAudioFormat(info);
-  const duration = info.videoDetails.lengthSeconds
-    ? `${Math.floor(+info.videoDetails.lengthSeconds / 60)}:${String(+info.videoDetails.lengthSeconds % 60).padStart(2, '0')}`
+  const duration = video.seconds
+    ? `${Math.floor(+video.seconds / 60)}:${String(+video.seconds % 60).padStart(2, '0')}`
     : '?';
 
   return {
     id: video.videoId,
     url,
-    title: video.title || info.videoDetails.title || 'Untitled',
-    author: video.author?.name || info.videoDetails.author?.name || 'Unknown',
-    durationSec: +video.seconds || +info.videoDetails.lengthSeconds || 0,
+    title: video.title || 'Untitled',
+    author: video.author?.name || 'Unknown',
+    durationSec: +video.seconds || 0,
     duration,
-    viewCount: video.views != null ? Number(video.views) : Number(info.videoDetails.viewCount) || 0,
-    format,
+    viewCount: video.views != null ? Number(video.views) : 0,
   };
 }
 
 async function downloadYoutubeAudio(meta) {
-  const stream = ytdl(meta.url, { quality: 'lowestaudio' });
+  const yt = await getYT();
+  const info = await yt.getInfo(meta.id);
+
+  // Get audio-only stream
+  const format = info.chooseFormat({ type: 'audio', quality: 'lowest' });
+  const stream = await info.download({ type: 'audio' });
+  return streamToBuffer(stream);
+}
+
+async function downloadYoutubeVideo(meta, qualityLabel) {
+  const yt = await getYT();
+  const info = await yt.getInfo(meta.id);
+
+  // Try to get a combined audio+video stream
+  const format = info.chooseFormat({ type: 'video+audio', quality: '360p' }).catch(() => null);
+  const stream = await info.download({ type: 'video+audio', quality: '360p' }).catch(async () => {
+    return info.download({ type: 'video+audio' });
+  });
   return streamToBuffer(stream);
 }
 
@@ -104,7 +114,7 @@ function formatMetadataCard(meta, config) {
 module.exports = {
   searchYoutubeAudio,
   downloadYoutubeAudio,
+  downloadYoutubeVideo,
   formatMetadataCard,
-  _pickAudioFormat: pickAudioFormat,
   _streamToBuffer: streamToBuffer,
 };

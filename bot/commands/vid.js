@@ -1,50 +1,60 @@
 /**
  * Kuzmix-MD Command: .vid
  * Category: aimedia
- * Description: Short alias to generate video from a prompt
+ * Description: Generate AI video from text prompt
  */
 
 module.exports = {
   name: 'vid',
   aliases: [],
   category: 'aimedia',
-  description: 'Short alias to generate video from a prompt',
-  usage: '.vid sports car drifting through neon rain 60fps',
-  example: '.vid sports car drifting through neon rain 60fps',
+  description: 'Generate AI video from text prompt',
+  usage: '.vid sports car drifting through neon rain',
+  example: '.vid sports car drifting through neon rain',
   permission: 'everyone',
 
   async execute(ctx) {
-    const { sock, msg, from, reply, args, isGroup, isOwner, sender, config, database } = ctx;
-    const { getJson, getBuffer } = require('../lib/httpClient');
-    const name = 'vid';
-    const desc = 'Short alias to generate video from a prompt';
-    const syntax = '.vid sports car drifting through neon rain 60fps';
-    const example = '.vid sports car drifting through neon rain 60fps';
-    const nameUpper = 'VID';
+    const { sock, msg, from, reply, args, config } = ctx;
+    const { getBuffer } = require('../lib/httpClient');
 
-    
     const prompt = args.join(' ').trim();
     if (!prompt) {
-      return reply(`🎬 *AI Media Studio (.${name})*\n\nUsage: \`${syntax}\`\nExample: \`${example}\``);
+      return reply(
+        `🎬 *AI Video Generator*\n\n` +
+        `Usage: \`.vid <prompt>\`\n` +
+        `Example: \`.vid sports car drifting through neon rain\`\n\n` +
+        `_${config.watermark}_`
+      );
     }
 
-    
-    await reply(`🎬 *Submitting video generation job for: "${prompt}"...*\n\n_Generating video preview..._`);
+    await reply(`🎬 *Generating video...*\n_Prompt: ${prompt}_\n\nThis may take 30-60 seconds...`);
+
     try {
-      const imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent('cinematic video scene ' + prompt)}?width=800&height=450&nologo=true`;
-      const buffer = await getBuffer(imgUrl, { timeout: 15000 });
-      const caption =
-        `╔═════『 *AI VIDEO SCENE GENERATOR* 』═════\n` +
-        `🎬 *Prompt:* ${prompt}\n` +
-        `🎞️ *Engine:* Wan2.1 / Veo-2 Video Synthesis\n` +
-        `📐 *Aspect Ratio:* 16:9 Cinematic\n` +
-        `╚═════════════════════════════════════════\n\n` +
-        `_${config.watermark}_`;
-      return await sock.sendMessage(from, { image: buffer, caption }, { quoted: msg });
-    } catch (err) {
-      return reply(`🎬 *Video Job Queued:* "${prompt}"\n\nVideo scene registered in cluster queue.\n\n_${config.watermark}_`);
-    }
-    
+      const seed = Math.floor(Math.random() * 999999);
+      const videoUrl = `https://gen.pollinations.ai/video/${encodeURIComponent(prompt)}?model=wan&width=800&height=450&duration=5&seed=${seed}`;
 
+      // Download the video
+      const buffer = await getBuffer(videoUrl, { timeout: 120000 });
+
+      if (!buffer || buffer.length < 1000) {
+        throw new Error('Received empty or invalid video');
+      }
+
+      // Verify it's actually a video (MP4 starts with ftyp)
+      const header = buffer.slice(0, 12).toString('ascii');
+      if (!header.includes('ftyp') && !header.includes('mdat') && !header.includes('moov')) {
+        // Might be a redirect or error page, try sending as video anyway
+        console.warn('[VID] Warning: buffer may not be valid MP4, header:', header);
+      }
+
+      const caption =
+        `🎬 *Prompt:* ${prompt}\n\n` +
+        `_${config.watermark}_`;
+
+      return await sock.sendMessage(from, { video: buffer, mimetype: 'video/mp4', caption }, { quoted: msg });
+    } catch (err) {
+      console.error('[VID CMD ERROR]', err.message);
+      return reply(`⚠️ *Video generation failed:* ${err.message}\n\n_Try a shorter prompt or try again later._`);
+    }
   }
 };

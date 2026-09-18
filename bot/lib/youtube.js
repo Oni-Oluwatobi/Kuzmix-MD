@@ -1,7 +1,7 @@
 /**
  * Kuzmix-MD YouTube Audio Engine
- * Uses yt-search for discovery and youtubei.js (InnerTube) for streaming.
- * InnerTube doesn't trigger YouTube's anti-bot — works from cloud servers.
+ * Uses yt-search for discovery and Cobalt API for downloads.
+ * Cobalt (cobalt.tools) is free, no sign-in required, works from cloud servers.
  */
 
 let ytSearch = null;
@@ -11,26 +11,8 @@ try {
   ytSearch = require('../node_modules/yt-search');
 }
 
-let Innertube = null;
-try {
-  Innertube = require('youtubei.js').Innertube;
-} catch (_) {
-  try {
-    Innertube = require('../node_modules/youtubei.js').Innertube;
-  } catch (_) {}
-}
-
-let ytInstance = null;
-
-async function getYT() {
-  if (!Innertube) {
-    throw new Error('youtubei.js not installed. Run: npm install youtubei.js');
-  }
-  if (!ytInstance) {
-    ytInstance = await Innertube.create({ retrieve_player: false });
-  }
-  return ytInstance;
-}
+const https = require('https');
+const http = require('http');
 
 async function streamToBuffer(stream) {
   const chunks = [];
@@ -38,6 +20,42 @@ async function streamToBuffer(stream) {
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
+}
+
+function httpGet(url) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https') ? https : http;
+    mod.get(url, { headers: { 'Accept': 'application/json' } }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, data }));
+    }).on('error', reject);
+  });
+}
+
+function httpPost(url, body) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https') ? https : http;
+    const parsed = new URL(url);
+    const postData = JSON.stringify(body);
+    const req = mod.request({
+      hostname: parsed.hostname,
+      path: parsed.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, data }));
+    });
+    req.on('error', reject);
+    req.write(postData);
+    req.end();
+  });
 }
 
 async function searchYoutubeAudio(query) {
@@ -75,26 +93,48 @@ async function searchYoutubeAudio(query) {
   };
 }
 
-async function downloadYoutubeAudio(meta) {
-  const yt = await getYT();
-  const info = await yt.getInfo(meta.id);
+async function downloadFromCobalt(url, downloadMode) {
+  // Try multiple Cobalt instances
+  const instances = [
+    'https://api.cobalt.tools',
+    'https://cobalt-api.hyper.lol',
+  ];
 
-  // Get audio-only stream
-  const format = info.chooseFormat({ type: 'audio', quality: 'lowest' });
-  const stream = await info.download({ type: 'audio' });
-  return streamToBuffer(stream);
+  for (const instance of instances) {
+    try {
+      const res = await httpPost(`${instance}/`, {
+        url,
+        downloadMode: downloadMode || 'audio',
+        audioFormat: 'mp3',
+        filenameStyle: 'basic',
+      });
+
+      const body = JSON.parse(res.data);
+
+      if (body.url) {
+        // Download the file from the returned URL
+        const fileRes = await httpGet(body.url);
+        return Buffer.from(fileRes.data, 'binary');
+      }
+
+      if (body.error) {
+        throw new Error(body.error.message || body.error);
+      }
+    } catch (err) {
+      console.warn(`[COBALT] Instance ${instance} failed:`, err.message);
+      continue;
+    }
+  }
+
+  throw new Error('All Cobalt instances failed. Try again later.');
 }
 
-async function downloadYoutubeVideo(meta, qualityLabel) {
-  const yt = await getYT();
-  const info = await yt.getInfo(meta.id);
+async function downloadYoutubeAudio(meta) {
+  return downloadFromCobalt(meta.url, 'audio');
+}
 
-  // Try to get a combined audio+video stream
-  const format = info.chooseFormat({ type: 'video+audio', quality: '360p' }).catch(() => null);
-  const stream = await info.download({ type: 'video+audio', quality: '360p' }).catch(async () => {
-    return info.download({ type: 'video+audio' });
-  });
-  return streamToBuffer(stream);
+async function downloadYoutubeVideo(meta) {
+  return downloadFromCobalt(meta.url, 'auto');
 }
 
 function formatMetadataCard(meta, config) {

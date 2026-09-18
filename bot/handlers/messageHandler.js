@@ -46,15 +46,33 @@ async function handleMessage(sock, m) {
 
     console.log(`[KUZMIX MSG] ${isGroup ? 'GROUP' : 'DM'} from=${from} sender=${rawSender} cmd=${isCommand} body="${body.slice(0, 50)}"`);
 
+    const senderNumber = String(rawSender || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+    const isOwner = fromMe || (Array.isArray(config.owner) && config.owner.some(o => String(o).replace(/\D/g, '') === senderNumber));
+
+    // Private mode: only respond to the owner/connected person
+    if (config.privateMode && !isOwner && !fromMe) {
+      return;
+    }
+
+    // Mode filters
+    if (config.mode === 'private' && isGroup && !isOwner) return;
+    if (config.mode === 'groups-only' && !isGroup && !isOwner) return;
+
+    // Reply function: if unknown mode is 'dm', send unknown responses to user DM
     const reply = async (text, options = {}) => {
       return sock.sendMessage(from, { text, ...options }, { quoted: msg });
     };
 
-    const senderNumber = String(rawSender || '').split('@')[0].split(':')[0].replace(/\D/g, '');
-    const isOwner = fromMe || (Array.isArray(config.owner) && config.owner.some(o => String(o).replace(/\D/g, '') === senderNumber));
-
-    if (config.mode === 'private' && isGroup && !isOwner) return;
-    if (config.mode === 'groups-only' && !isGroup && !isOwner) return;
+    // DM reply: always sends to the user's direct message
+    const replyDM = async (text) => {
+      const userJid = rawSender || from;
+      try {
+        await sock.sendMessage(userJid, { text });
+      } catch (_) {
+        // Fallback to chat if DM fails
+        await reply(text);
+      }
+    };
 
     if (isCommand) {
       const trimmedBody = body.slice(prefix.length).trim();
@@ -85,6 +103,7 @@ async function handleMessage(sock, m) {
           args,
           body,
           reply,
+          replyDM,
           config,
           database,
         };
@@ -96,9 +115,13 @@ async function handleMessage(sock, m) {
           await reply(`⚠️ *Error executing .${cmd.name}*: ${execErr.message}`);
         }
       } else {
-        const mode = config.unknownCommandMode || 'silent';
+        // Unknown command handling
+        const mode = config.unknownCommandMode || 'notify';
 
-        if (mode === 'notify') {
+        if (mode === 'private') {
+          // Send unknown command response to user DM only
+          await replyDM(`❓ *Unknown Command*: \`${prefix}${commandTrigger}\` is not recognized.\nType \`${prefix}menu\` for available commands.`);
+        } else if (mode === 'notify') {
           await reply(`❓ *Unknown Command*: \`${prefix}${commandTrigger}\` is not recognized.\nType \`${prefix}menu\` for available commands.`);
         } else if (mode === 'help') {
           await reply(`🤖 *${config.botName} Unknown Command*\nCommand: \`${prefix}${commandTrigger}\`\n\nType \`${prefix}menu\` to explore commands.`);
@@ -117,6 +140,7 @@ async function handleMessage(sock, m) {
             console.error('[KUZMIX AI] Error:', aiErr.message);
           }
         }
+        // mode === 'silent' = do nothing
       }
     }
   } catch (err) {

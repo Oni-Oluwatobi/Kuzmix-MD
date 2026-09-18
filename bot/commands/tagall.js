@@ -1,15 +1,16 @@
 /**
- * Kuzmix-MD Tag All Command (.tagall / .everyone / .hidetag)
- * Mentions all members in the group with a custom announcement
+ * Kuzmix-MD Command: .tagall
+ * Category: Group Admin
+ * Description: Tag all members in one message (silent, no spam)
  */
 
 module.exports = {
   name: 'tagall',
-  aliases: ['everyone', 'hidetag', 'pingall'],
+  aliases: ['everyone', 'pingall'],
   category: 'Group Admin',
-  description: 'Mentions every member in the group with an announcement message',
-  usage: '.tagall [announcement text]',
-  example: '.tagall Meeting starts in 10 minutes!',
+  description: 'Tag all members in one message',
+  usage: '.tagall [message]',
+  example: '.tagall Meeting in 10 mins',
   permission: 'admin',
 
   async execute(ctx) {
@@ -23,7 +24,6 @@ module.exports = {
       const metadata = await sock.groupMetadata(from);
       const participants = metadata.participants || [];
 
-      // Check if caller is admin or bot owner
       const senderParticipant = participants.find(p => p.id === sender);
       const isAdmin = senderParticipant?.admin === 'admin' || senderParticipant?.admin === 'superadmin' || isOwner;
 
@@ -34,17 +34,11 @@ module.exports = {
       const announcement = args.join(' ').trim() || 'Attention everyone!';
       const mentions = participants.map(p => p.id);
 
-      let text =
-        `╔═════『 *GROUP ANNOUNCEMENT* 』═════\n` +
-        `📢 *Message:* ${announcement}\n` +
-        `👥 *Total Members:* ${participants.length}\n` +
-        `╚════════════════════════════════════\n\n`;
+      // Build mention string: @number1 @number2 ...
+      const mentionTags = participants.map(p => `@${p.id.split('@')[0]}`).join(' ');
 
-      for (const p of participants) {
-        text += `• @${p.id.split('@')[0]}\n`;
-      }
-
-      text += `\n_${config.watermark}_`;
+      // Single message: announcement + all mentions
+      const text = `📢 *${announcement}*\n\n${mentionTags}`;
 
       await sock.sendMessage(from, { text, mentions }, { quoted: msg });
     } catch (err) {

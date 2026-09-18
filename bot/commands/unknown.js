@@ -1,41 +1,41 @@
 /**
  * Kuzmix-MD Command: .unknown
  * Category: security
- * Description: Toggle private response routing mode across all WhatsApp groups
+ * Description: Toggle how unknown commands are handled
  */
 
 module.exports = {
   name: 'unknown',
-  aliases: ["private","ghost"],
+  aliases: ['ghost'],
   category: 'security',
-  description: 'Toggle private response routing mode across all WhatsApp groups',
-  usage: '.unknown on',
+  description: 'Toggle unknown command response mode',
+  usage: '.unknown on/off',
   example: '.unknown on',
-  permission: 'everyone',
+  permission: 'owner',
 
   async execute(ctx) {
-    const { sock, msg, from, reply, args, isGroup, isOwner, sender, config, database } = ctx;
-    const { getJson, getBuffer } = require('../lib/httpClient');
-    const name = 'unknown';
-    const desc = 'Toggle private response routing mode across all WhatsApp groups';
-    const syntax = '.unknown on';
-    const example = '.unknown on';
-    const nameUpper = 'UNKNOWN';
+    const { reply, args, config } = ctx;
 
-    
     const toggle = args[0]?.toLowerCase();
-    const state = toggle === 'on' || toggle === 'enable' || toggle === '1';
-    
-    const mode = state ? 'private' : toggle === 'off' ? 'silent' : (config.unknownCommandMode === 'private' ? 'silent' : 'private');
-    config.unknownCommandMode = mode;
+    if (!toggle || !['on', 'off', 'enable', 'disable'].includes(toggle)) {
+      return reply(
+        `╔═════『 *UNKNOWN COMMAND MODE* 』═════\n` +
+        `🛡️ *Current:* ${config.unknownCommandMode.toUpperCase()}\n\n` +
+        `*Options:*\n` +
+        `• \`.unknown on\` — Send unknown command responses to user DM 🔒\n` +
+        `• \`.unknown off\` — Show responses in chat (default) 💬\n` +
+        `╚═════════════════════════════════════`
+      );
+    }
+
+    const state = toggle === 'on' || toggle === 'enable';
+    config.unknownCommandMode = state ? 'private' : 'notify';
+
     return reply(
       `╔═════『 *UNKNOWN COMMAND MODE* 』═════\n` +
-      `🛡️ *Current Mode:* ${mode.toUpperCase()}\n` +
-      `📝 *Routing:* ${mode === 'private' ? 'Forwarded privately to user DM 🔒' : 'Silent / Local suppression 🔕'}\n` +
-      `╚═════════════════════════════════════\n\n` +
-      `_${config.watermark}_`
+      `🛡️ *Mode:* ${config.unknownCommandMode.toUpperCase()}\n` +
+      `📝 *Effect:* ${state ? 'Unknown command responses go to your DM 🔒' : 'Responses shown in chat 💬'}\n` +
+      `╚═════════════════════════════════════`
     );
-    
-
   }
 };

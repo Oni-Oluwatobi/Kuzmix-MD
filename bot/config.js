@@ -23,6 +23,7 @@ module.exports = {
     .filter(Boolean),
 
   mode: process.env.BOT_MODE || 'public',
+  privateMode: process.env.PRIVATE_MODE === 'true' || false,
   unknownCommandMode: process.env.UNKNOWN_MODE || 'notify',
   sessionDir: sessionDirectory,
   logLevel: process.env.LOG_LEVEL || 'silent',

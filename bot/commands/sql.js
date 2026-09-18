@@ -15,7 +15,6 @@ module.exports = {
 
   async execute(ctx) {
     const { sock, msg, from, reply, args, isGroup, isOwner, sender, config, database } = ctx;
-    const { getJson, getBuffer } = require('../lib/httpClient');
     const name = 'sql';
     const desc = 'Generate optimized SQL queries & schemas';
     const syntax = '.sql query top 5 customers with highest revenue';
@@ -30,24 +29,12 @@ module.exports = {
 
     await reply('⚙️ *Analyzing and generating code...*');
 
-    const apiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
-    if (apiKey) {
-      try {
-        const { GoogleGenAI } = require('@google/genai');
-        const ai = new GoogleGenAI({ apiKey });
-        const res = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: `You are a Senior Full-Stack Engineer. Task: ${desc}. Requirement: ${prompt}. Output production code with clean formatting.`,
-        });
-        if (res.text) {
-          return reply(
-            `╔═════『 *KUZMIX CODING: ${nameUpper}* 』═════\n` +
-            `${res.text.trim()}\n` +
-            `╚══════════════════════════════════════════\n\n` +
-            `_${config.watermark}_`
-          );
-        }
-      } catch (_) {}
+    const { ask, format } = require('../lib/aiHelper');
+    try {
+      const text = await ask(prompt, `Task: ${desc}. Format output cleanly for WhatsApp.`);
+      return reply(format(text, `KUZMIX AI: ${nameUpper}`));
+    } catch (err) {
+      console.warn('[AI ERROR]', err.message);
     }
 
     return reply(

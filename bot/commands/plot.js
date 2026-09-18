@@ -15,7 +15,6 @@ module.exports = {
 
   async execute(ctx) {
     const { sock, msg, from, reply, args, isGroup, isOwner, sender, config, database } = ctx;
-    const { getJson, getBuffer } = require('../lib/httpClient');
     const name = 'plot';
     const desc = 'Develop engaging story plot twists & arcs';
     const syntax = '.plot time travel thriller in ancient Africa';
@@ -30,24 +29,12 @@ module.exports = {
 
     await reply('✨ *Composing creative output...*');
 
-    const apiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
-    if (apiKey) {
-      try {
-        const { GoogleGenAI } = require('@google/genai');
-        const ai = new GoogleGenAI({ apiKey });
-        const res = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: `Creative writing task: ${desc}. Topic: ${topic}. Make it highly expressive and creative.`,
-        });
-        if (res.text) {
-          return reply(
-            `╔═════『 *KUZMIX CREATIVE: ${nameUpper}* 』═════\n` +
-            `${res.text.trim()}\n` +
-            `╚══════════════════════════════════════════\n\n` +
-            `_${config.watermark}_`
-          );
-        }
-      } catch (_) {}
+    const { ask, format } = require('../lib/aiHelper');
+    try {
+      const text = await ask(topic, `Task: ${desc}. Format output cleanly for WhatsApp.`);
+      return reply(format(text, `KUZMIX AI: ${nameUpper}`));
+    } catch (err) {
+      console.warn('[AI ERROR]', err.message);
     }
 
     return reply(

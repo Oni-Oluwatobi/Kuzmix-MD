@@ -74,7 +74,45 @@ async function getBuffer(url, options = {}) {
   }
 }
 
+async function postJson(url, body, options = {}) {
+  const timeoutMs = options.timeout || 30000;
+  const headers = options.headers || {
+    'Content-Type': 'application/json',
+  };
+
+  if (typeof fetch !== 'undefined') {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) {
+        const errText = await res.text().catch(() => res.statusText);
+        throw new Error(`HTTP ${res.status}: ${errText}`);
+      }
+      return await res.json();
+    } catch (err) {
+      clearTimeout(timeout);
+      throw err;
+    }
+  }
+
+  try {
+    const axios = require('axios');
+    const res = await axios.post(url, body, { headers, timeout: timeoutMs });
+    return res.data;
+  } catch (axiosErr) {
+    throw axiosErr;
+  }
+}
+
 module.exports = {
   getJson,
   getBuffer,
+  postJson,
 };

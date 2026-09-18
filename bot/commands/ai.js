@@ -1,6 +1,6 @@
 /**
  * Kuzmix-MD AI Command (.ai / .ask / .gpt)
- * Uses Google Gemini AI or intelligent assistant reasoning
+ * Uses OpenRouter API with top-tier models
  */
 
 module.exports = {
@@ -13,9 +13,8 @@ module.exports = {
   permission: 'everyone',
 
   async execute(ctx) {
-    const { reply, args, msg, config, sender } = ctx;
+    const { reply, args, msg, config } = ctx;
 
-    // Support both direct text and replying to a message
     const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
     const quotedText =
       quoted?.conversation ||
@@ -40,58 +39,60 @@ module.exports = {
 
     await reply('🧠 *Kuzmix AI is thinking...*');
 
-    // 1. Try Google Gemini SDK if API key is provided
-    const apiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
-    if (apiKey) {
-      try {
-        const { GoogleGenAI } = require('@google/genai');
-        const ai = new GoogleGenAI({ apiKey });
-        const systemPrompt =
-          `You are Kuzmix AI, the intelligent engine of Kuzmix-MD developed by ${config.developerName} (${config.organization}). ` +
-          `Provide concise, highly accurate, and helpful responses formatted cleanly for WhatsApp with bold headers and bullet points where helpful.`;
+    const apiKey = config.openRouterApiKey || process.env.OPENROUTER_API_KEY;
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: `${systemPrompt}\n\nUser Question: ${prompt}`,
-        });
-
-        const text = response.text ? response.text.trim() : '';
-        if (text) {
-          const finalMsg =
-            `╔═════『 *KUZMIX AI* 』═════\n` +
-            `${text}\n` +
-            `╚═══════════════════════════\n\n` +
-            `_${config.watermark}_`;
-          return reply(finalMsg);
-        }
-      } catch (geminiErr) {
-        console.warn('[AI CMD] Gemini API error, falling back:', geminiErr.message);
-      }
+    if (!apiKey) {
+      return reply(
+        `⚠️ *OpenRouter API key not configured.*\n\n` +
+        `The bot owner needs to set \`OPENROUTER_API_KEY\` in the environment variables.`
+      );
     }
 
-    // 2. Free DuckDuckGo / Open AI Assistant fallback
     try {
-      const { getJson } = require('../lib/httpClient');
-      const encoded = encodeURIComponent(prompt);
-      const ddgUrl = `https://api.duckduckgo.com/?q=${encoded}&format=json&no_html=1&skip_disambig=1`;
-      const resData = await getJson(ddgUrl, { timeout: 8000 });
-      const abstract = resData?.AbstractText || resData?.RelatedTopics?.[0]?.Text;
+      const { postJson } = require('../lib/httpClient');
 
-      if (abstract) {
-        const out =
-          `╔═════『 *KUZMIX AI KNOWLEDGE* 』═════\n` +
-          `${abstract}\n` +
-          `╚══════════════════════════════════════\n\n` +
+      const systemPrompt =
+        `You are Kuzmix AI, the intelligent engine of Kuzmix-MD developed by ${config.developerName} (${config.organization}). ` +
+        `Provide concise, highly accurate, and helpful responses formatted cleanly for WhatsApp with bold headers and bullet points where helpful. ` +
+        `Use WhatsApp formatting: *bold*, _italic_, ~strikethrough~. Keep responses focused and useful.`;
+
+      const response = await postJson(
+        'https://openrouter.ai/api/v1/chat/completions',
+        {
+          model: 'anthropic/claude-sonnet-4',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt },
+          ],
+          max_tokens: 2048,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 60000,
+        }
+      );
+
+      const text = response?.choices?.[0]?.message?.content?.trim();
+
+      if (text) {
+        const finalMsg =
+          `╔═════『 *KUZMIX AI* 』═════\n` +
+          `${text}\n` +
+          `╚═══════════════════════════\n\n` +
           `_${config.watermark}_`;
-        return reply(out);
+        return reply(finalMsg);
+      } else {
+        throw new Error('No response from AI model');
       }
-    } catch (_) {}
-
-    // 3. Informative response if no external provider returned
-    return reply(
-      `🤖 *Kuzmix AI Response*\n\n` +
-      `Prompt: _"${prompt}"_\n\n` +
-      `💡 *Tip:* To unlock full generative capabilities with Gemini 2.5 Flash, set \`GEMINI_API_KEY\` in your bot configuration or environment variables.`
-    );
+    } catch (err) {
+      console.error('[AI CMD] OpenRouter error:', err.message);
+      return reply(
+        `⚠️ *AI Error:* ${err.message}\n\n` +
+        `_Please try again or ask a different question._`
+      );
+    }
   },
 };

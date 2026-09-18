@@ -15,7 +15,6 @@ module.exports = {
 
   async execute(ctx) {
     const { sock, msg, from, reply, args, isGroup, isOwner, sender, config, database } = ctx;
-    const { getJson, getBuffer } = require('../lib/httpClient');
     const name = 'resetai';
     const desc = 'Reset AI conversation memory';
     const syntax = '.resetai';
@@ -30,28 +29,12 @@ module.exports = {
 
     await reply('🧠 *Processing with Kuzmix AI...*');
 
-    // Check Gemini API Key
-    const apiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
-    if (apiKey) {
-      try {
-        const { GoogleGenAI } = require('@google/genai');
-        const ai = new GoogleGenAI({ apiKey });
-        const systemInstruction = 'You are Kuzmix AI, an expert assistant developed by ' + config.developerName + '. Task: Reset AI conversation memory. Format output cleanly for WhatsApp.';
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: `${systemInstruction}\n\nUser Input: ${query}`,
-        });
-        if (response.text) {
-          return reply(
-            `╔═════『 *KUZMIX AI: ${nameUpper}* 』═════\n` +
-            `${response.text.trim()}\n` +
-            `╚═════════════════════════════════════\n\n` +
-            `_${config.watermark}_`
-          );
-        }
-      } catch (err) {
-        console.warn('[AI ERROR]', err.message);
-      }
+    const { ask, format } = require('../lib/aiHelper');
+    try {
+      const text = await ask(query, `Task: ${desc}. Format output cleanly for WhatsApp.`);
+      return reply(format(text, `KUZMIX AI: ${nameUpper}`));
+    } catch (err) {
+      console.warn('[AI ERROR]', err.message);
     }
 
     // Free AI DuckDuckGo fallback

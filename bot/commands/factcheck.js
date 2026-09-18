@@ -15,7 +15,7 @@ module.exports = {
 
   async execute(ctx) {
     const { sock, msg, from, reply, args, isGroup, isOwner, sender, config, database } = ctx;
-    const { getJson, getBuffer } = require('../lib/httpClient');
+
     const name = 'factcheck';
     const desc = 'Check factual accuracy of a claim';
     const syntax = '.factcheck lightning never strikes twice';
@@ -30,43 +30,13 @@ module.exports = {
 
     await reply('🧠 *Processing with Kuzmix AI...*');
 
-    // Check Gemini API Key
-    const apiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
-    if (apiKey) {
-      try {
-        const { GoogleGenAI } = require('@google/genai');
-        const ai = new GoogleGenAI({ apiKey });
-        const systemInstruction = 'You are Kuzmix AI, an expert assistant developed by ' + config.developerName + '. Task: Check factual accuracy of a claim. Format output cleanly for WhatsApp.';
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: `${systemInstruction}\n\nUser Input: ${query}`,
-        });
-        if (response.text) {
-          return reply(
-            `╔═════『 *KUZMIX AI: ${nameUpper}* 』═════\n` +
-            `${response.text.trim()}\n` +
-            `╚═════════════════════════════════════\n\n` +
-            `_${config.watermark}_`
-          );
-        }
-      } catch (err) {
-        console.warn('[AI ERROR]', err.message);
-      }
-    }
-
-    // Free AI DuckDuckGo fallback
+    const { ask, format } = require('../lib/aiHelper');
     try {
-      const data = await getJson(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`);
-      const text = data.AbstractText || data.RelatedTopics?.[0]?.Text;
-      if (text) {
-        return reply(
-          `╔═════『 *KUZMIX AI: ${nameUpper}* 』═════\n` +
-          `${text}\n` +
-          `╚═════════════════════════════════════\n\n` +
-          `_${config.watermark}_`
-        );
-      }
-    } catch (_) {}
+      const text = await ask(query, `Task: ${desc}. Format output cleanly for WhatsApp.`);
+      return reply(format(text, `KUZMIX AI: ${nameUpper}`));
+    } catch (err) {
+      console.warn('[AI ERROR]', err.message);
+    }
 
     return reply(
       `🤖 *Kuzmix AI: ${nameUpper}*\n\n` +

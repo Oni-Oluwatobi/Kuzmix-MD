@@ -75,20 +75,26 @@ async function handleMessage(sock, m) {
 
     // DM reply: always sends to user's DM (for dmMode)
     const replyDM = async (text) => {
-      const userJid = rawSender || from;
+      // Build proper DM JID: strip :xxx suffix, replace @g.us with @s.whatsapp.net
+      let dmJid = rawSender || from;
+      dmJid = dmJid.replace(/:.+@/, '@').replace('@g.us', '@s.whatsapp.net');
+      if (!dmJid.endsWith('@s.whatsapp.net')) {
+        dmJid = dmJid.split('@')[0] + '@s.whatsapp.net';
+      }
       try {
-        await sock.sendMessage(userJid, { text });
-      } catch (_) {
-        // If DM fails and we're in a DM already, send normally
-        if (!isGroup) {
+        await sock.sendMessage(dmJid, { text });
+      } catch (dmErr) {
+        console.warn('[KUZMIX] DM send failed, falling back to chat:', dmErr.message);
+        // Last resort: send in chat (quoted)
+        if (isGroup) {
           await sock.sendMessage(from, { text }, { quoted: msg });
         }
       }
     };
 
-    // Normal reply: sends in chat, or to DM if dmMode is on
+    // Normal reply: sends in chat, or to ALL users' DMs if dmMode is on
     const reply = async (text, options = {}) => {
-      if (dmMode && !isOwner) {
+      if (dmMode) {
         return replyDM(text);
       }
       return sock.sendMessage(from, { text, ...options }, { quoted: msg });
@@ -160,20 +166,6 @@ async function handleMessage(sock, m) {
         await reply(`❓ *Unknown Command*: \`${prefix}${commandTrigger}\` is not recognized.\nType \`${prefix}menu\` for available commands.`);
       } else if (mode === 'help') {
         await reply(`🤖 *${config.botName} Unknown Command*\nCommand: \`${prefix}${commandTrigger}\`\n\nType \`${prefix}menu\` to explore commands.`);
-      } else if (mode === 'ai' && (config.geminiApiKey || process.env.GEMINI_API_KEY)) {
-        try {
-          const { GoogleGenAI } = require('@google/genai');
-          const apiKey = config.geminiApiKey || process.env.GEMINI_API_KEY;
-          const ai = new GoogleGenAI({ apiKey });
-          const prompt = `You are ${config.botName}, developed by ${config.developerName}. Answer this briefly: ${body}`;
-          const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-          });
-          await reply(`✨ *${config.botName} AI:*\n\n${response.text}`);
-        } catch (aiErr) {
-          console.error('[KUZMIX AI] Error:', aiErr.message);
-        }
       }
       // mode === 'silent' = do nothing
     }

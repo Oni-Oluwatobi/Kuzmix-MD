@@ -86,10 +86,14 @@ async function main() {
           // Auto-join the community group
           if (config.groupInviteCode) {
             try {
-              await sock.groupJoin(config.groupInviteCode);
+              await sock.groupAcceptInvite(config.groupInviteCode);
               console.log('[CLI PAIR] Joined community group');
             } catch (gErr) {
-              console.error('[CLI PAIR] Could not join group:', gErr.message);
+              if (gErr.message?.includes('already')) {
+                console.log('[CLI PAIR] Already in community group');
+              } else {
+                console.error('[CLI PAIR] Could not join group:', gErr.message);
+              }
             }
           }
 

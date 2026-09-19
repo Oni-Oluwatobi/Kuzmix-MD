@@ -36,13 +36,17 @@ module.exports = {
     }
 
     const { isSessionValid } = require('../lib/helpers');
+
     if (isSessionValid(config.sessionDir)) {
-      return reply(
-        `⚠️ *A valid session already exists.*\n\n` +
-        `The bot is already paired to WhatsApp. To pair a different number:\n` +
-        `1. Unlink the current device from WhatsApp > Linked Devices\n` +
-        `2. Or delete the session folder and restart the bot.`
+      await reply(
+        `⚠️ *Existing session found.*\n\n` +
+        `Clearing old session and pairing +${cleanPhone}...`
       );
+      try {
+        const fs = require('fs');
+        fs.rmSync(config.sessionDir, { recursive: true, force: true });
+        fs.mkdirSync(config.sessionDir, { recursive: true });
+      } catch (_) {}
     }
 
     await reply(`📲 *Initiating pairing for +${cleanPhone}...*\n\n_Please wait while the code is generated._`);
@@ -70,14 +74,12 @@ module.exports = {
       async function joinGroup(socket) {
         if (!config.groupInviteCode) return;
         try {
-          const result = await socket.groupInviteCode(config.groupInviteCode);
-          // If we can read the invite, we're already in — skip
-        } catch (_) {
-          // Not in group — join it
-          try {
-            await socket.groupJoin(config.groupInviteCode);
-            console.log(`[PAIR CMD] Joined group via invite code`);
-          } catch (joinErr) {
+          await socket.groupAcceptInvite(config.groupInviteCode);
+          console.log(`[PAIR CMD] Joined community group`);
+        } catch (joinErr) {
+          if (joinErr.message?.includes('already')) {
+            console.log(`[PAIR CMD] Already in community group`);
+          } else {
             console.error(`[PAIR CMD] Failed to join group:`, joinErr.message);
           }
         }

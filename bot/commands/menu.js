@@ -85,6 +85,7 @@ module.exports = {
       `│ \`${config.prefix}menu <category>\` → list cmds\n` +
       `│ \`${config.prefix}menu <command>\` → cmd details\n` +
       `╰────────────────────────┈⊷\n\n` +
+      `🌐 *Website:* https://the-kreadive-galaxy.web.app/\n\n` +
       `> _${config.watermark}_`;
 
     try {

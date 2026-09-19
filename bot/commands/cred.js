@@ -17,7 +17,8 @@ module.exports = {
       `• *Architecture:* 3-Tier Isolated (Admin / Pairing / Bot)\n` +
       `• *Security:* Isolated Noise-IK auth, zero browser key leaks\n` +
       `• *Author:* ${config.developerName} (${config.organization})\n` +
-      `• *License:* MIT\n\n` +
+      `• *License:* MIT\n` +
+      `• *Website:* https://the-kreadive-galaxy.web.app/\n\n` +
       `_Session storage is encrypted and protected in KUZMIX_AUTH_DIR._`;
 
     try {

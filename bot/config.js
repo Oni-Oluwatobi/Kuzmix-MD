@@ -32,5 +32,6 @@ module.exports = {
   watermark: process.env.BOT_WATERMARK || '⚡ Powered by Kuzmix-MD',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   openRouterApiKey: process.env.OPENROUTER_API_KEY || '',
+  generationMode: process.env.GENERATION_MODE || 'auto',
   groupInviteCode: process.env.GROUP_INVITE_CODE || 'IbvPjkzu0Rq69XgmwiAHMA',
 };

@@ -333,65 +333,87 @@ async function generateImage(prompt, opts) {
 }
 
 const HF_VIDEO_MODELS = [
+  'Wan-AI/Wan2.1-T2V-1.3B-Diffusers',
   'Wan-AI/Wan2.1-T2V-14B',
-  'tencent/HunyuanVideo',
-  'genmo/mochi-1-preview',
   'SulphurAI/Sulphur-2-base',
 ];
 
 async function generateWithHuggingFace(prompt, opts) {
   const hfToken = opts.hfToken || process.env.HUGGINGFACE_API_KEY || '';
-  if (!hfToken) {
-    throw new Error(
-      'HuggingFace backend requires HUGGINGFACE_API_KEY.\n' +
-      '1. Go to huggingface.co/settings/tokens\n' +
-      '2. Create a free token (Read access)\n' +
-      '3. Set HUGGINGFACE_API_KEY in Render environment'
-    );
-  }
 
   const width = opts.width || 720;
   const height = opts.height || 1280;
-  const modelId = opts.hfModel || HF_VIDEO_MODELS[0];
+  const models = opts.hfModels || HF_VIDEO_MODELS;
 
-  const url = `https://router.huggingface.co/hf-inference/models/${modelId}`;
-  console.log('[HuggingFace] Video request: model=' + modelId);
+  for (const modelId of models) {
+    const url = `https://router.huggingface.co/hf-inference/models/${modelId}`;
+    console.log('[HuggingFace] Trying model: ' + modelId);
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${hfToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      inputs: prompt,
-      parameters: { width, height },
-    }),
-    signal: AbortSignal.timeout(300000),
-  });
+    const headers = { 'Content-Type': 'application/json' };
+    if (hfToken) headers['Authorization'] = `Bearer ${hfToken}`;
 
-  if (!response.ok) {
-    const errText = await response.text().catch(() => response.statusText);
-    throw new Error(`HuggingFace HTTP ${response.status}: ${errText.slice(0, 200)}`);
-  }
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          inputs: prompt,
+          parameters: { width, height },
+        }),
+        signal: AbortSignal.timeout(300000),
+      });
 
-  const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    const json = await response.json();
-    if (json.error) throw new Error(json.error);
-    if (json[0]?.url) {
-      const videoBuffer = await getBuffer(json[0].url, { timeout: 120000 });
-      return { buffer: videoBuffer, model: modelId, seed: 0 };
+      if (response.status === 403) {
+        const errBody = await response.text().catch(() => '');
+        if (errBody.includes('insufficient permissions') || errBody.includes('authentication')) {
+          console.warn('[HuggingFace] 403 for ' + modelId + ' - token lacks inference permission, trying next model');
+          continue;
+        }
+      }
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        console.warn('[HuggingFace] HTTP ' + response.status + ' for ' + modelId + ': ' + errText.slice(0, 100));
+        continue;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const json = await response.json();
+        if (json.error) {
+          console.warn('[HuggingFace] Error from ' + modelId + ': ' + json.error);
+          continue;
+        }
+        if (json[0]?.url) {
+          const videoBuffer = await getBuffer(json[0].url, { timeout: 120000 });
+          if (videoBuffer && videoBuffer.length > 1000) {
+            return { buffer: videoBuffer, model: modelId, seed: 0 };
+          }
+        }
+        continue;
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer && buffer.length > 1000) {
+        return { buffer, model: modelId, seed: 0 };
+      }
+    } catch (err) {
+      console.warn('[HuggingFace] Request failed for ' + modelId + ': ' + err.message);
     }
-    throw new Error('Unexpected JSON response from HuggingFace');
   }
 
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (!buffer || buffer.length < 1000) {
-    throw new Error('Received empty video from HuggingFace');
-  }
+  const permHelp = hfToken
+    ? 'Your token may lack Inference Providers permission.\n' +
+      'Fix: Go to huggingface.co/settings/tokens → Delete old token → Create new one with "Read" role\n' +
+      'Make sure "Inference API" is checked when creating the token.'
+    : 'Set HUGGINGFACE_API_KEY in Render env with a free HF token.\n' +
+      '1. Go to huggingface.co/settings/tokens\n' +
+      '2. Create token with "Read" role\n' +
+      '3. Make sure "Inference API" is checked';
 
-  return { buffer, model: modelId, seed: 0 };
+  throw new Error(
+    'All HuggingFace video models failed.\n\n' + permHelp
+  );
 }
 
 async function generateWithPollinations(prompt, opts) {

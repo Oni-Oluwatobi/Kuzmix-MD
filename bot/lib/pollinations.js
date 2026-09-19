@@ -404,12 +404,21 @@ async function generateWithPollinations(prompt, opts) {
     );
   }
 
+  const mode = opts.mode || 'auto';
+
+  if (mode === 'free' || mode === 'auto') {
+    throw new Error(
+      'Pollinations video has no free models available.\n' +
+      'Switch to HuggingFace backend: `.videobackend huggingface`\n' +
+      'Or set VIDEO_BACKEND=huggingface in Render.'
+    );
+  }
+
   const preferredModel = opts.model || null;
   const width = opts.width || 720;
   const height = opts.height || 1280;
   const duration = opts.duration || 5;
   const seed = opts.seed != null ? opts.seed : Math.floor(Math.random() * 999999);
-  const mode = opts.mode || 'auto';
 
   let modelId;
   if (preferredModel) {

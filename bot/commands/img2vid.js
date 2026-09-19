@@ -15,12 +15,11 @@ module.exports = {
 
   async execute(ctx) {
     const { sock, msg, from, reply, args, config } = ctx;
-    const { getBuffer } = require('../lib/httpClient');
+    const pollinations = require('../lib/pollinations');
     const { downloadMediaMessage } = require('../lib/mediaHelper');
 
     const prompt = args.join(' ').trim() || 'subtle motion, cinematic';
 
-    // Check if replying to an image
     const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
     const hasImage = quotedMsg?.imageMessage;
 
@@ -33,10 +32,9 @@ module.exports = {
       );
     }
 
-    await reply(`🎬 *Generating video from image...*\n_Motion: ${prompt}_\n\nThis may take 30-60 seconds...`);
+    await reply(`🎬 *Generating video from image...*\n_Motion: ${prompt}_\n_Backend: HuggingFace (free)_\n\nThis may take 30-120 seconds...`);
 
     try {
-      // Download the quoted image
       const imageBuffer = await downloadMediaMessage(
         { key: quotedMsg.key || msg.message.extendedTextMessage.contextInfo.stanzaId, message: quotedMsg },
         'buffer',
@@ -47,22 +45,21 @@ module.exports = {
         throw new Error('Could not download the quoted image');
       }
 
-      // Upload image to a temp host to get a URL for Pollinations
-      // Use Pollinations image-to-video with the prompt
-      const seed = Math.floor(Math.random() * 999999);
-      const videoUrl = `https://gen.pollinations.ai/video/${encodeURIComponent(prompt)}?model=seedance&width=800&height=450&duration=4&seed=${seed}`;
+      const result = await pollinations.generateVideo(prompt, {
+        mode: 'free',
+        backend: 'huggingface',
+        hfToken: process.env.HUGGINGFACE_API_KEY || '',
+      });
 
-      const buffer = await getBuffer(videoUrl, { timeout: 120000 });
-
-      if (!buffer || buffer.length < 1000) {
+      if (!result.buffer || result.buffer.length < 1000) {
         throw new Error('Received empty or invalid video');
       }
 
       const caption =
-        `🎬 *Motion:* ${prompt}\n\n` +
+        `🎬 *Motion:* ${prompt}\n⚙️ *Model:* ${result.model || 'HuggingFace'}\n\n` +
         `_${config.watermark}_`;
 
-      return await sock.sendMessage(from, { video: buffer, mimetype: 'video/mp4', caption }, { quoted: msg });
+      return await sock.sendMessage(from, { video: result.buffer, mimetype: 'video/mp4', caption }, { quoted: msg });
     } catch (err) {
       console.error('[IMG2VID CMD ERROR]', err.message);
       return reply(`⚠️ *Video generation failed:* ${err.message}\n\n_Try again later._`);

@@ -15,7 +15,7 @@ module.exports = {
 
   async execute(ctx) {
     const { sock, msg, from, reply, args, config } = ctx;
-    const { getBuffer } = require('../lib/httpClient');
+    const pollinations = require('../lib/pollinations');
 
     const prompt = args.join(' ').trim();
     if (!prompt) {
@@ -27,23 +27,24 @@ module.exports = {
       );
     }
 
-    await reply(`🎬 *Generating animated video...*\n_Prompt: ${prompt}_\n\nThis may take 30-60 seconds...`);
+    await reply(`🎬 *Generating animated video...*\n_Prompt: ${prompt}_\n_Backend: HuggingFace (free)_\n\nThis may take 30-120 seconds...`);
 
     try {
-      const seed = Math.floor(Math.random() * 999999);
-      const videoUrl = `https://gen.pollinations.ai/video/${encodeURIComponent(prompt)}?model=wan&width=800&height=450&duration=5&seed=${seed}`;
+      const result = await pollinations.generateVideo(prompt, {
+        mode: 'free',
+        backend: 'huggingface',
+        hfToken: process.env.HUGGINGFACE_API_KEY || '',
+      });
 
-      const buffer = await getBuffer(videoUrl, { timeout: 120000 });
-
-      if (!buffer || buffer.length < 1000) {
+      if (!result.buffer || result.buffer.length < 1000) {
         throw new Error('Received empty or invalid video');
       }
 
       const caption =
-        `🎬 *Prompt:* ${prompt}\n\n` +
+        `🎬 *Prompt:* ${prompt}\n⚙️ *Model:* ${result.model || 'HuggingFace'}\n\n` +
         `_${config.watermark}_`;
 
-      return await sock.sendMessage(from, { video: buffer, mimetype: 'video/mp4', caption }, { quoted: msg });
+      return await sock.sendMessage(from, { video: result.buffer, mimetype: 'video/mp4', caption }, { quoted: msg });
     } catch (err) {
       console.error('[ANIMATE CMD ERROR]', err.message);
       return reply(`⚠️ *Video generation failed:* ${err.message}\n\n_Try again later._`);

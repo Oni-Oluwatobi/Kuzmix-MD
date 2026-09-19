@@ -12,7 +12,7 @@ module.exports = {
   async execute(ctx) {
     const { sock, msg, from, reply, args, config } = ctx;
     const commands = Array.from(commandHandler.commands.values());
-    const menuImage = 'https://i.postimg.cc/SX72hf41/menu.png';
+    const menuImage = 'https://i.postimg.cc/sDFBDFfd/menu.png';
 
     // .menu <command> — show command details
     if (args && args.length > 0) {

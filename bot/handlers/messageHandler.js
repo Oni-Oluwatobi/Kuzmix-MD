@@ -102,6 +102,30 @@ async function handleMessage(sock, m) {
 
     console.log(`[KUZMIX MSG] ${isGroup ? 'GROUP' : 'DM'} from=${from} sender=${rawSender} body="${body.slice(0, 50)}"`);
 
+    // Track user in database
+    try {
+      const users = database.get('users', {});
+      const userKey = senderNumber;
+      if (!users[userKey]) {
+        users[userKey] = {
+          jid: rawSender,
+          number: senderNumber,
+          firstSeen: Date.now(),
+          lastSeen: Date.now(),
+          messages: 0,
+          isOwner: isOwner,
+          groups: [],
+        };
+      }
+      users[userKey].lastSeen = Date.now();
+      users[userKey].messages = (users[userKey].messages || 0) + 1;
+      if (isOwner) users[userKey].isOwner = true;
+      if (isGroup && !users[userKey].groups.includes(from)) {
+        users[userKey].groups.push(from);
+      }
+      database.set('users', users);
+    } catch (_) {}
+
     // --- 1. Check for prefix command (.play something) ---
     const isPrefixed = body.startsWith(prefix);
     let commandTrigger = '';

@@ -33,5 +33,7 @@ module.exports = {
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   openRouterApiKey: process.env.OPENROUTER_API_KEY || '',
   generationMode: process.env.GENERATION_MODE || 'auto',
+  videoBackend: process.env.VIDEO_BACKEND || 'huggingface',
+  pollinationsApiKey: process.env.POLLINATIONS_API_KEY || '',
   groupInviteCode: process.env.GROUP_INVITE_CODE || 'IbvPjkzu0Rq69XgmwiAHMA',
 };

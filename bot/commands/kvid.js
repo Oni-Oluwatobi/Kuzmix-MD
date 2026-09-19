@@ -53,12 +53,15 @@ module.exports = {
       ? pollinations.VIDEO_ALIASES[preferredModel].split('/').pop().replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
       : 'Auto';
 
-    await reply(`🎬 *Generating video...*\n_Model: ${modelName}_\n_This may take 30-60 seconds..._`);
+    await reply(`🎬 *Generating video...*\n_Model: ${modelName}_\n_Backend: ${(config.videoBackend || 'huggingface')}_\n_This may take 30-60 seconds..._`);
 
     try {
       const result = await pollinations.generateVideo(prompt, {
         mode: config.generationMode || 'auto',
         model: preferredModel || null,
+        backend: config.videoBackend || 'huggingface',
+        apiKey: config.pollinationsApiKey || '',
+        hfToken: process.env.HUGGINGFACE_API_KEY || '',
       });
 
       if (!result.buffer || result.buffer.length < 1000) {

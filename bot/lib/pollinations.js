@@ -258,13 +258,14 @@ function buildImageUrl(prompt, modelId, width, height, seed) {
   return IMAGE_API + '/prompt/' + encodeURIComponent(prompt) + '?' + params.toString();
 }
 
-function buildVideoUrl(prompt, modelId, width, height, duration, seed) {
+function buildVideoUrl(prompt, modelId, width, height, duration, seed, apiKey) {
   const params = new URLSearchParams();
   params.set('model', modelId);
   params.set('width', String(width));
   params.set('height', String(height));
   params.set('duration', String(duration));
   params.set('seed', String(seed));
+  if (apiKey) params.set('key', apiKey);
   return VIDEO_API + '/' + encodeURIComponent(prompt) + '?' + params.toString();
 }
 
@@ -331,13 +332,76 @@ async function generateImage(prompt, opts) {
   throw new Error('All image models failed. Attempts: ' + summary);
 }
 
-async function generateVideo(prompt, opts) {
-  opts = opts || {};
-  if (!prompt || typeof prompt !== 'string') {
-    throw new Error('Prompt is required and must be a string');
+const HF_VIDEO_MODELS = [
+  'Wan-AI/Wan2.1-T2V-14B',
+  'tencent/HunyuanVideo',
+  'genmo/mochi-1-preview',
+  'SulphurAI/Sulphur-2-base',
+];
+
+async function generateWithHuggingFace(prompt, opts) {
+  const hfToken = opts.hfToken || process.env.HUGGINGFACE_API_KEY || '';
+  if (!hfToken) {
+    throw new Error(
+      'HuggingFace backend requires HUGGINGFACE_API_KEY.\n' +
+      '1. Go to huggingface.co/settings/tokens\n' +
+      '2. Create a free token (Read access)\n' +
+      '3. Set HUGGINGFACE_API_KEY in Render environment'
+    );
   }
-  if (prompt.trim().length === 0) {
-    throw new Error('Prompt cannot be empty');
+
+  const width = opts.width || 720;
+  const height = opts.height || 1280;
+  const modelId = opts.hfModel || HF_VIDEO_MODELS[0];
+
+  const url = `https://router.huggingface.co/hf-inference/models/${modelId}`;
+  console.log('[HuggingFace] Video request: model=' + modelId);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${hfToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      inputs: prompt,
+      parameters: { width, height },
+    }),
+    signal: AbortSignal.timeout(300000),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => response.statusText);
+    throw new Error(`HuggingFace HTTP ${response.status}: ${errText.slice(0, 200)}`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const json = await response.json();
+    if (json.error) throw new Error(json.error);
+    if (json[0]?.url) {
+      const videoBuffer = await getBuffer(json[0].url, { timeout: 120000 });
+      return { buffer: videoBuffer, model: modelId, seed: 0 };
+    }
+    throw new Error('Unexpected JSON response from HuggingFace');
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer || buffer.length < 1000) {
+    throw new Error('Received empty video from HuggingFace');
+  }
+
+  return { buffer, model: modelId, seed: 0 };
+}
+
+async function generateWithPollinations(prompt, opts) {
+  const apiKey = opts.apiKey || process.env.POLLINATIONS_API_KEY || '';
+  if (!apiKey) {
+    throw new Error(
+      'Pollinations backend requires POLLINATIONS_API_KEY.\n' +
+      'Register free at enter.pollinations.ai/keys\n' +
+      'Then set POLLINATIONS_API_KEY in Render environment.'
+    );
   }
 
   const preferredModel = opts.model || null;
@@ -362,7 +426,7 @@ async function generateVideo(prompt, opts) {
     if (!tried.has(modelId)) {
       tried.add(modelId);
 
-      const url = buildVideoUrl(prompt, modelId, width, height, duration, seed);
+      const url = buildVideoUrl(prompt, modelId, width, height, duration, seed, apiKey);
       console.log('[Pollinations] Video attempt ' + (attempt + 1) + ': model=' + modelId);
 
       try {
@@ -384,7 +448,20 @@ async function generateVideo(prompt, opts) {
   }
 
   const summary = errors.map(function(e) { return e.model + ': ' + e.error; }).join('; ');
-  throw new Error('All video models failed. Attempts: ' + summary);
+  throw new Error('All Pollinations video models failed. Attempts: ' + summary);
+}
+
+async function generateVideo(prompt, opts) {
+  opts = opts || {};
+  if (!prompt || typeof prompt !== 'string') throw new Error('Prompt is required');
+  if (prompt.trim().length === 0) throw new Error('Prompt cannot be empty');
+
+  const backend = opts.backend || process.env.VIDEO_BACKEND || 'huggingface';
+
+  if (backend === 'pollinations') {
+    return generateWithPollinations(prompt, opts);
+  }
+  return generateWithHuggingFace(prompt, opts);
 }
 
 module.exports = {
@@ -397,6 +474,9 @@ module.exports = {
   getFallbackChain,
   generateImage,
   generateVideo,
+  generateWithHuggingFace,
+  generateWithPollinations,
+  HF_VIDEO_MODELS,
   IMAGE_ALIASES,
   VIDEO_ALIASES,
   FREE_IMAGE_MODELS,

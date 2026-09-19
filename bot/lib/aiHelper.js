@@ -24,7 +24,7 @@ async function ask(prompt, systemOverride, opts = {}) {
     throw new Error('OPENROUTER_API_KEY not configured. Ask the bot owner to set it.');
   }
 
-  const model = opts.model || 'anthropic/claude-sonnet-4';
+  const model = opts.model || 'openrouter/free';
   const maxTokens = opts.maxTokens || 2048;
   const timeout = opts.timeout || 60000;
 

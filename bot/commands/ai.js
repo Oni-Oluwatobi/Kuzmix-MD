@@ -59,7 +59,7 @@ module.exports = {
       const response = await postJson(
         'https://openrouter.ai/api/v1/chat/completions',
         {
-          model: 'anthropic/claude-sonnet-4',
+          model: 'openrouter/free',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt },

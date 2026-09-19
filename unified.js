@@ -56,6 +56,13 @@ const handle = app.getRequestHandler();
 app.prepare().then(() => {
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
+
+    // Health check endpoint for UptimeRobot / monitoring
+    if (parsedUrl.pathname === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
+    }
+
     handle(req, res, parsedUrl);
   }).listen(PORT, '0.0.0.0', () => {
     console.log(`[BOOT] ✅ Pairing Portal running on http://0.0.0.0:${PORT}`);

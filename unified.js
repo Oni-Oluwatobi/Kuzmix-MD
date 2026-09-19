@@ -37,13 +37,12 @@ if (isSessionValid(config.sessionDir)) {
   watchForSession();
 }
 
-// 2. Start the Next.js pairing portal
+// 2. Start HTTP server with health check + Next.js portal
 const PORT = process.env.PORT || 3000;
 const next = require('next');
 const { createServer } = require('http');
 const { parse } = require('url');
 
-// Check if .next exists (built on Render) or use dev mode
 const nextBuildDir = path.join(PORTAL_DIR, '.next');
 const useDev = !fs.existsSync(nextBuildDir);
 if (useDev) {
@@ -53,39 +52,44 @@ if (useDev) {
 const app = next({ dev: useDev, dir: PORTAL_DIR });
 const handle = app.getRequestHandler();
 
-app.prepare().then(() => {
-  const server = createServer((req, res) => {
-    const parsedUrl = parse(req.url, true);
+// Start HTTP server IMMEDIATELY — health check works even while Next.js is building
+const server = createServer((req, res) => {
+  const parsedUrl = parse(req.url, true);
 
-    // Health check endpoint for UptimeRobot / monitoring
-    if (parsedUrl.pathname === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
-    }
-
-    handle(req, res, parsedUrl);
-  }).listen(PORT, '0.0.0.0', () => {
-    console.log(`[BOOT] ✅ Pairing Portal running on http://0.0.0.0:${PORT}`);
-    console.log(`[BOOT]    Pair URL: http://localhost:${PORT}/pair`);
-    console.log('');
-    console.log('[BOOT] Both services are now running!');
-  });
-
-  // Graceful shutdown — close server + bot socket before exiting
-  function gracefulShutdown(signal) {
-    console.log(`[BOOT] ${signal} received — shutting down gracefully...`);
-    server.close(() => {
-      try {
-        const { getSocket } = require('./bot/bot');
-        const sock = getSocket();
-        if (sock && typeof sock.end === 'function') sock.end(undefined);
-      } catch (_) {}
-      setTimeout(() => process.exit(0), 1000);
-    });
-    // Force exit after 5s if graceful shutdown hangs
-    setTimeout(() => process.exit(1), 5000);
+  // Health check — always available, no Next.js dependency
+  if (parsedUrl.pathname === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
   }
 
-  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  // Once Next.js is ready, delegate to it
+  handle(req, res, parsedUrl);
+}).listen(PORT, '0.0.0.0', () => {
+  console.log(`[BOOT] ✅ HTTP server running on http://0.0.0.0:${PORT}`);
+  console.log(`[BOOT]    Health: http://localhost:${PORT}/health`);
+  console.log(`[BOOT]    Portal: http://localhost:${PORT}/pair`);
+  console.log('');
 });
+
+// Prepare Next.js in background — portal becomes available once built
+app.prepare().then(() => {
+  console.log('[BOOT] ✅ Next.js pairing portal ready');
+  console.log('[BOOT] Both services are now running!');
+});
+
+// Graceful shutdown
+function gracefulShutdown(signal) {
+  console.log(`[BOOT] ${signal} received — shutting down gracefully...`);
+  server.close(() => {
+    try {
+      const { getSocket } = require('./bot/bot');
+      const sock = getSocket();
+      if (sock && typeof sock.end === 'function') sock.end(undefined);
+    } catch (_) {}
+    setTimeout(() => process.exit(0), 1000);
+  });
+  setTimeout(() => process.exit(1), 5000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

@@ -1,6 +1,7 @@
 const config = require('../config');
 const commandHandler = require('./commandHandler');
 const database = require('../database');
+const messageStore = require('../lib/messageStore');
 const { unwrapMessage } = require('../lib/mediaHelper');
 
 function extractMessageText(msg) {
@@ -97,7 +98,9 @@ async function handleMessage(sock, m) {
       if (dmMode) {
         return replyDM(text);
       }
-      return sock.sendMessage(from, { text, ...options }, { quoted: msg });
+      const sentMsg = await sock.sendMessage(from, { text, ...options }, { quoted: msg });
+      if (sentMsg?.key) messageStore.track(from, sentMsg.key);
+      return sentMsg;
     };
 
     console.log(`[KUZMIX MSG] ${isGroup ? 'GROUP' : 'DM'} from=${from} sender=${rawSender} body="${body.slice(0, 50)}"`);

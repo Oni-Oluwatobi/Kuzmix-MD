@@ -31,15 +31,12 @@ module.exports = {
     await reply('🧠 *Processing with Kuzmix AI...*');
 
     const { ask, format } = require('../lib/aiHelper');
+    const { getJson } = require('../lib/httpClient');
     try {
       const text = await ask(query, `Task: ${desc}. Format output cleanly for WhatsApp.`);
       return reply(format(text, `KUZMIX AI: ${nameUpper}`));
     } catch (err) {
       console.warn('[AI ERROR]', err.message);
-    }
-      } catch (err) {
-        console.warn('[AI ERROR]', err.message);
-      }
     }
 
     // Free AI DuckDuckGo fallback

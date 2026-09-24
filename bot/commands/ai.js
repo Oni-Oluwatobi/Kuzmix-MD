@@ -37,15 +37,11 @@ module.exports = {
       );
     }
 
-    await reply('🧠 *Kuzmix AI is thinking...*');
-
     const apiKey = config.openRouterApiKey || process.env.OPENROUTER_API_KEY;
 
     if (!apiKey) {
-      return reply(
-        `⚠️ *OpenRouter API key not configured.*\n\n` +
-        `The bot owner needs to set \`OPENROUTER_API_KEY\` in the environment variables.`
-      );
+      console.error('[AI CMD] OPENROUTER_API_KEY not configured');
+      return reply('❌ AI unavailable.');
     }
 
     try {
@@ -89,10 +85,7 @@ module.exports = {
       }
     } catch (err) {
       console.error('[AI CMD] OpenRouter error:', err.message);
-      return reply(
-        `⚠️ *AI Error:* ${err.message}\n\n` +
-        `_Please try again or ask a different question._`
-      );
+      return reply('❌ AI unavailable.');
     }
   },
 };

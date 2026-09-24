@@ -9,9 +9,16 @@ try {
   require('dotenv').config();
 } catch (_) {}
 
-const sessionDirectory = process.env.KUZMIX_AUTH_DIR || path.join(process.cwd(), 'session');
+function envBool(name, defaultVal) {
+  const v = process.env[name];
+  if (v === undefined || v === '') return defaultVal;
+  return v === 'true' || v === '1' || v === 'yes';
+}
 
-module.exports = {
+const sessionDirectory = process.env.KUZMIX_AUTH_DIR || path.join(process.cwd(), 'session');
+const sessionsRoot = path.join(sessionDirectory, 'sessions');
+
+const config = {
   botName: process.env.BOT_NAME || 'Kuzmix-MD',
   developerName: process.env.BOT_DEVELOPER || 'Oni Oluwatobi',
   organization: process.env.ORGANIZATION || 'The Kreadive Galaxy',
@@ -23,9 +30,12 @@ module.exports = {
     .filter(Boolean),
 
   mode: process.env.BOT_MODE || 'public',
-  privateMode: process.env.PRIVATE_MODE === 'true' || false,
-  unknownCommandMode: process.env.UNKNOWN_MODE || 'notify',
+  privateMode: envBool('PRIVATE_MODE', true),
+  publicMode: envBool('PUBLIC_MODE', false),
+  strictMode: envBool('STRICT_MODE', true),
+  unknownCommandMode: process.env.UNKNOWN_MODE || 'silent',
   sessionDir: sessionDirectory,
+  sessionsRoot,
   logLevel: process.env.LOG_LEVEL || 'silent',
   reconnectMaxRetries: 10,
   reconnectBaseDelayMs: 3000,
@@ -36,4 +46,12 @@ module.exports = {
   videoBackend: process.env.VIDEO_BACKEND || 'huggingface',
   pollinationsApiKey: process.env.POLLINATIONS_API_KEY || '',
   groupInviteCode: process.env.GROUP_INVITE_CODE || 'IbvPjkzu0Rq69XgmwiAHMA',
+
+  resetSafetyFlags() {
+    this.privateMode = envBool('PRIVATE_MODE', true);
+    this.publicMode = envBool('PUBLIC_MODE', false);
+    this.strictMode = envBool('STRICT_MODE', true);
+  },
 };
+
+module.exports = config;

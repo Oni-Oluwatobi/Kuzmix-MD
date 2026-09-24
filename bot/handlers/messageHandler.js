@@ -26,21 +26,17 @@ function extractMessageText(msg) {
   );
 }
 
-/**
- * Try to find a command name inside a sentence (without prefix).
- * Returns { command, args } or null.
- */
-function detectCommandInSentence(text, commandHandler) {
-  const words = text.toLowerCase().split(/\s+/);
-  for (let i = 0; i < words.length; i++) {
-    const clean = words[i].replace(/[^a-z0-9]/g, '');
-    const cmd = commandHandler.getCommand(clean);
-    if (cmd) {
-      const args = words.slice(i + 1);
-      return { command: clean, args, cmd };
-    }
+function extractNumber(jid) {
+  return String(jid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+}
+
+function deriveDMJid(rawSender) {
+  let jid = String(rawSender || '');
+  jid = jid.replace(/:.+@/, '@').replace('@g.us', '@s.whatsapp.net');
+  if (!jid.endsWith('@s.whatsapp.net')) {
+    jid = jid.split('@')[0] + '@s.whatsapp.net';
   }
-  return null;
+  return jid;
 }
 
 async function handleMessage(sock, m) {
@@ -50,10 +46,35 @@ async function handleMessage(sock, m) {
     if (!msg.message) return;
     if (msg.key && msg.key.remoteJid === 'status@broadcast') return;
 
+    // Dedup + self-echo protection (before any other processing)
+    const msgId = msg.key && msg.key.id;
+    if (msgId) {
+      if (!messageStore.markSeen(msgId)) return;
+      if (messageStore.wasSent(msgId)) return;
+    }
+
     const from = msg.key.remoteJid;
     const isGroup = from.endsWith('@g.us');
     const rawSender = isGroup ? (msg.key.participant || msg.participant) : from;
     const fromMe = Boolean(msg.key.fromMe);
+
+    let senderNumber = extractNumber(rawSender);
+    if (fromMe && sock.user && sock.user.id) {
+      const ownNumber = extractNumber(sock.user.id);
+      if (ownNumber) senderNumber = ownNumber;
+    }
+    const isOwner = Boolean(senderNumber) &&
+      Array.isArray(config.owner) &&
+      config.owner.some(o => String(o) === senderNumber);
+
+    // --- Safety gates (fail closed, before body is even parsed) ---
+    // Groups: silent unless public mode is on (owner always allowed)
+    if (isGroup && !config.publicMode && !isOwner) return;
+    // DMs: private mode = owner only
+    if (!isGroup && config.privateMode && !isOwner) return;
+    // Legacy mode filters
+    if (config.mode === 'private' && isGroup && !isOwner) return;
+    if (config.mode === 'groups-only' && !isGroup && !isOwner) return;
 
     let body = extractMessageText(msg);
     body = String(body || '').trim();
@@ -62,54 +83,39 @@ async function handleMessage(sock, m) {
     const prefix = config.prefix || '.';
     const dmMode = config.unknownCommandMode === 'private';
 
-    const senderNumber = String(rawSender || '').split('@')[0].split(':')[0].replace(/\D/g, '');
-    const isOwner = fromMe || (Array.isArray(config.owner) && config.owner.some(o => String(o).replace(/\D/g, '') === senderNumber));
-
-    // Private mode: only respond to the owner/connected person
-    if (config.privateMode && !isOwner && !fromMe) {
-      return;
+    // DM redirect: when DM-only mode is on in a group, all replies go to the requester's DM
+    let effectiveSock = sock;
+    const dmJid = deriveDMJid(rawSender);
+    if (dmMode && isGroup) {
+      effectiveSock = Object.create(sock);
+      effectiveSock.sendMessage = (jid, content, options) => {
+        if (jid === from) {
+          return sock.sendMessage(dmJid, content);
+        }
+        return sock.sendMessage(jid, content, options);
+      };
     }
 
-    // Mode filters
-    if (config.mode === 'private' && isGroup && !isOwner) return;
-    if (config.mode === 'groups-only' && !isGroup && !isOwner) return;
-
-    // DM reply: always sends to user's DM (for dmMode)
     const replyDM = async (text) => {
-      // Build proper DM JID: strip :xxx suffix, replace @g.us with @s.whatsapp.net
-      let dmJid = rawSender || from;
-      dmJid = dmJid.replace(/:.+@/, '@').replace('@g.us', '@s.whatsapp.net');
-      if (!dmJid.endsWith('@s.whatsapp.net')) {
-        dmJid = dmJid.split('@')[0] + '@s.whatsapp.net';
-      }
       try {
         await sock.sendMessage(dmJid, { text });
       } catch (dmErr) {
-        console.warn('[KUZMIX] DM send failed, falling back to chat:', dmErr.message);
-        // Last resort: send in chat (quoted)
-        if (isGroup) {
-          await sock.sendMessage(from, { text }, { quoted: msg });
-        }
+        console.warn('[KUZMIX] DM send failed:', dmErr.message);
       }
     };
 
-    // Normal reply: sends in chat, or to ALL users' DMs if dmMode is on
     const reply = async (text, options = {}) => {
-      if (dmMode) {
-        return replyDM(text);
-      }
-      const sentMsg = await sock.sendMessage(from, { text, ...options }, { quoted: msg });
-      if (sentMsg?.key) messageStore.track(from, sentMsg.key);
+      const sentMsg = await effectiveSock.sendMessage(from, { text, ...options }, { quoted: msg });
+      const destJid = (dmMode && isGroup) ? dmJid : from;
+      if (sentMsg && sentMsg.key) messageStore.track(destJid, sentMsg.key);
       return sentMsg;
     };
 
-    console.log(`[KUZMIX MSG] ${isGroup ? 'GROUP' : 'DM'} from=${from} sender=${rawSender} body="${body.slice(0, 50)}"`);
-
-    // Track user in database
+    // Track user in database (only for messages that passed all gates)
     try {
       const users = database.get('users', {});
       const userKey = senderNumber;
-      if (!users[userKey]) {
+      if (userKey && !users[userKey]) {
         users[userKey] = {
           jid: rawSender,
           number: senderNumber,
@@ -120,16 +126,18 @@ async function handleMessage(sock, m) {
           groups: [],
         };
       }
-      users[userKey].lastSeen = Date.now();
-      users[userKey].messages = (users[userKey].messages || 0) + 1;
-      if (isOwner) users[userKey].isOwner = true;
-      if (isGroup && !users[userKey].groups.includes(from)) {
-        users[userKey].groups.push(from);
+      if (userKey) {
+        users[userKey].lastSeen = Date.now();
+        users[userKey].messages = (users[userKey].messages || 0) + 1;
+        if (isOwner) users[userKey].isOwner = true;
+        if (isGroup && !users[userKey].groups.includes(from)) {
+          users[userKey].groups.push(from);
+        }
+        database.set('users', users);
       }
-      database.set('users', users);
     } catch (_) {}
 
-    // --- 1. Check for prefix command (.play something) ---
+    // --- Exact command parsing (no fuzzy word scanning) ---
     const isPrefixed = body.startsWith(prefix);
     let commandTrigger = '';
     let args = [];
@@ -139,12 +147,12 @@ async function handleMessage(sock, m) {
       const parts = trimmedBody.split(/\s+/);
       commandTrigger = parts.shift()?.toLowerCase() || '';
       args = parts;
-    } else {
-      // --- 2. Try to detect command in sentence (play something / hey bot play song) ---
-      const detected = detectCommandInSentence(body, commandHandler);
-      if (detected) {
-        commandTrigger = detected.command;
-        args = detected.args;
+    } else if (!config.strictMode) {
+      // Non-strict: the entire message must EQUAL a registered command name/alias (no args)
+      const lower = body.toLowerCase();
+      if (commandHandler.getCommand(lower)) {
+        commandTrigger = lower;
+        args = [];
       }
     }
 
@@ -160,7 +168,7 @@ async function handleMessage(sock, m) {
       database.incrementCommandStat(cmd.name);
 
       const ctx = {
-        sock,
+        sock: effectiveSock,
         msg,
         from,
         sender: rawSender,
@@ -181,16 +189,16 @@ async function handleMessage(sock, m) {
         await cmd.execute(ctx);
       } catch (execErr) {
         console.error(`[KUZMIX] Error executing .${cmd.name}:`, execErr);
-        await reply(`⚠️ *Error executing .${cmd.name}*: ${execErr.message}`);
+        await reply('❌ Command failed.');
       }
     } else {
-      // Unknown command handling
-      const mode = config.unknownCommandMode || 'notify';
+      // Unknown command handling (default: silent)
+      const mode = config.unknownCommandMode || 'silent';
 
       if (mode === 'private') {
-        await replyDM(`❓ *Unknown Command*: \`${commandTrigger}\` is not recognized.\nType \`menu\` for available commands.`);
+        await replyDM(`❓ *Unknown Command*: \`${commandTrigger}\` is not recognized.`);
       } else if (mode === 'notify') {
-        await reply(`❓ *Unknown Command*: \`${prefix}${commandTrigger}\` is not recognized.\nType \`${prefix}menu\` for available commands.`);
+        await reply(`❓ *Unknown Command*: \`${prefix}${commandTrigger}\` is not recognized.`);
       } else if (mode === 'help') {
         await reply(`🤖 *${config.botName} Unknown Command*\nCommand: \`${prefix}${commandTrigger}\`\n\nType \`${prefix}menu\` to explore commands.`);
       }

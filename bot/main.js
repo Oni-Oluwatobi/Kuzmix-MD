@@ -1,4 +1,4 @@
-const { startBot } = require('./bot');
+const { startBot, getAllSockets } = require('./bot');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
@@ -48,14 +48,23 @@ function startBotWithRetry() {
     });
 }
 
+// Check if any sessions exist (legacy or multi-session)
+function hasAnySessions() {
+  // Legacy single session
+  if (fs.existsSync(path.join(config.sessionDir, 'creds.json'))) return true;
+
+  // Multi-session directories
+  if (fs.existsSync(config.sessionsRoot)) {
+    const dirs = fs.readdirSync(config.sessionsRoot, { withFileTypes: true });
+    return dirs.some(d => d.isDirectory() && fs.existsSync(path.join(config.sessionsRoot, d.name, 'creds.json')));
+  }
+
+  return false;
+}
+
 // Session watcher: detect when pairing portal creates new session files
 function watchForSession() {
   if (botRunning) return;
-
-  const sessionDir = config.sessionDir;
-  if (!fs.existsSync(sessionDir)) {
-    fs.mkdirSync(sessionDir, { recursive: true });
-  }
 
   // Check every 5 seconds for new session files
   const watcher = setInterval(() => {
@@ -64,32 +73,27 @@ function watchForSession() {
       return;
     }
 
-    try {
-      const files = fs.readdirSync(sessionDir);
-      const hasCreds = files.some(f => f.endsWith('.json') && f !== 'bot.sock');
-      if (hasCreds) {
-        console.log('[KUZMIX] 📱 Session files detected! Starting bot...');
-        clearInterval(watcher);
-        restartCount = 0;
-        startBotWithRetry();
-      }
-    } catch (_) {}
+    if (hasAnySessions()) {
+      console.log('[KUZMIX] 📱 Session files detected! Starting bot...');
+      clearInterval(watcher);
+      restartCount = 0;
+      startBotWithRetry();
+    }
   }, 5000);
 
-  console.log('[KUZMIX] 👀 Watching for session files in: ' + sessionDir);
+  console.log('[KUZMIX] 👀 Watching for session files...');
 }
 
-// Watchdog: if bot was running but socket died silently, restart
+// Watchdog: if bot was running but all sockets died, restart
 let watchdogRunning = false;
 function startWatchdog() {
   if (watchdogRunning) return;
   watchdogRunning = true;
-  const { getSocket } = require('./bot');
   setInterval(() => {
     if (!botRunning) return;
-    const sock = getSocket();
-    if (!sock || !sock.user) {
-      console.log('[KUZMIX] ⚠️  Watchdog: socket lost — restarting...');
+    const sockets = getAllSockets();
+    if (sockets.length === 0) {
+      console.log('[KUZMIX] ⚠️  Watchdog: no active sockets — restarting...');
       botRunning = false;
       restartCount = 0;
       startBotWithRetry();
@@ -99,11 +103,10 @@ function startWatchdog() {
 
 // Only auto-start if run directly (not when required by unified.js)
 if (require.main === module) {
-  const { isSessionValid } = require('./lib/helpers');
-  if (isSessionValid(config.sessionDir)) {
+  if (hasAnySessions()) {
     startBotWithRetry();
   } else {
-    console.log('\n⚠️  NO ACTIVE WHATSAPP SESSION FOUND in: ' + config.sessionDir);
+    console.log('\n⚠️  NO ACTIVE WHATSAPP SESSIONS FOUND');
     console.log('Please pair your WhatsApp account first via one of the following methods:\n');
     console.log('1. Web Pairing Portal: Open /pair in your browser');
     console.log('2. Terminal CLI Pair: node index.js pair <phoneNumber>');

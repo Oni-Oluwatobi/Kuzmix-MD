@@ -6,7 +6,7 @@
 
 module.exports = {
   name: 'video',
-  aliases: ['vd', 'mp4'],
+  aliases: ['vd', 'mp4', 'videosearch', 'ytmp4'],
   category: 'download',
   description: 'Search YouTube and download a video (mp4)',
   usage: '.video Burna Boy concert performance',

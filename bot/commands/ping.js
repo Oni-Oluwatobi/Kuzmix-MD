@@ -8,14 +8,21 @@ module.exports = {
 
   async execute(ctx) {
     const { reply, config } = ctx;
-    const start = Date.now();
-    await reply('🏓 *Pinging WhatsApp Gateway...*');
-    const latency = Date.now() - start;
+    const uptimeSec = Math.floor(process.uptime());
+    const hours = Math.floor(uptimeSec / 3600);
+    const minutes = Math.floor((uptimeSec % 3600) / 60);
+    const seconds = uptimeSec % 60;
+    const uptimeStr = hours > 0
+      ? `${hours}h ${minutes}m ${seconds}s`
+      : minutes > 0
+        ? `${minutes}m ${seconds}s`
+        : `${seconds}s`;
 
     await reply(
-      `🏓 *PONG!* \`${latency}ms\`\n\n` +
+      `🏓 *PONG!*\n\n` +
       `• *Bot:* ${config.botName}\n` +
       `• *Core:* Baileys Multi-Device (JavaScript)\n` +
+      `• *Uptime:* ${uptimeStr}\n` +
       `• *Status:* 🟢 Operational`
     );
   },

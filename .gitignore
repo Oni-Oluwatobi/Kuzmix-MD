@@ -11,3 +11,4 @@ bot/*.db
 tsconfig.tsbuildinfo
 bun.lock
 .reflex/
+database/

@@ -1,8 +1,14 @@
 const MAX_STORED = 200;
+const MAX_SENT_IDS = 1000;
+const MAX_SEEN_IDS = 1000;
 
 class MessageStore {
   constructor() {
     this.messages = new Map();
+    this.sentIds = new Set();
+    this.sentOrder = [];
+    this.seenIds = new Set();
+    this.seenOrder = [];
   }
 
   track(chatJid, msgKey) {
@@ -26,6 +32,32 @@ class MessageStore {
     const list = this.messages.get(chatJid) || [];
     this.messages.delete(chatJid);
     return list;
+  }
+
+  markSent(id) {
+    if (!id || this.sentIds.has(id)) return;
+    this.sentIds.add(id);
+    this.sentOrder.push(id);
+    if (this.sentOrder.length > MAX_SENT_IDS) {
+      const old = this.sentOrder.shift();
+      this.sentIds.delete(old);
+    }
+  }
+
+  wasSent(id) {
+    return Boolean(id) && this.sentIds.has(id);
+  }
+
+  markSeen(id) {
+    if (!id) return true;
+    if (this.seenIds.has(id)) return false;
+    this.seenIds.add(id);
+    this.seenOrder.push(id);
+    if (this.seenOrder.length > MAX_SEEN_IDS) {
+      const old = this.seenOrder.shift();
+      this.seenIds.delete(old);
+    }
+    return true;
   }
 }
 

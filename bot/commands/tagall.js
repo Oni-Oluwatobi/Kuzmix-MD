@@ -19,6 +19,10 @@ module.exports = {
     if (!isGroup) {
       return reply('⚠️ *This command can only be used inside a WhatsApp group.*');
     }
+    // Mass-mention commands are owner-only while private mode is active
+    if (!isOwner && config.privateMode) {
+      return reply('🔒 *Private Mode Active:* Mass-mention commands are owner-only while private mode is on.');
+    }
 
     try {
       const metadata = await sock.groupMetadata(from);
@@ -43,7 +47,7 @@ module.exports = {
       await sock.sendMessage(from, { text, mentions }, { quoted: msg });
     } catch (err) {
       console.error('[TAGALL CMD ERROR]', err.message);
-      await reply(`❌ *Could not tag group members:* ${err.message}`);
+      await reply('❌ Could not tag group members.');
     }
   },
 };

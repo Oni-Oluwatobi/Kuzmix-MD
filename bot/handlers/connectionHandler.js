@@ -7,7 +7,8 @@ const config = require('../config');
 
 class ConnectionHandler {
   constructor() {
-    this.reconnectAttempts = 0;
+    this.reconnectAttempts = new Map();
+    this.reconnectTimers = new Map();
     this.maxRetries = config.reconnectMaxRetries || 10;
   }
 
@@ -56,7 +57,15 @@ class ConnectionHandler {
     return { statusCode, reasonText };
   }
 
-  handleUpdate(update, onRestartCallback) {
+  clearReconnect(sessionId) {
+    if (this.reconnectTimers.has(sessionId)) {
+      clearTimeout(this.reconnectTimers.get(sessionId));
+      this.reconnectTimers.delete(sessionId);
+    }
+    this.reconnectAttempts.delete(sessionId);
+  }
+
+  handleUpdate(update, onRestartCallback, sessionId = 'default') {
     const { connection, lastDisconnect } = update;
 
     if (connection === 'connecting') {
@@ -64,11 +73,18 @@ class ConnectionHandler {
     }
 
     if (connection === 'open') {
-      this.reconnectAttempts = 0;
+      if (this.reconnectTimers.has(sessionId)) {
+        clearTimeout(this.reconnectTimers.get(sessionId));
+        this.reconnectTimers.delete(sessionId);
+      }
+      this.reconnectAttempts.set(sessionId, 0);
+      // Reset runtime safety flags to safe env-derived defaults after (re)connect
+      config.resetSafetyFlags();
       console.log('========================================================');
       console.log(`[KUZMIX] 🟢 WHATSAPP CONNECTION OPEN & AUTHENTICATED!`);
       console.log(`[KUZMIX] Bot: ${config.botName}`);
       console.log(`[KUZMIX] Active Prefix: "${config.prefix}"`);
+      console.log(`[KUZMIX] Safety: private=${config.privateMode} public=${config.publicMode} strict=${config.strictMode}`);
       console.log('========================================================');
     }
 
@@ -83,6 +99,7 @@ class ConnectionHandler {
       console.log('--------------------------------------------------------');
 
       if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+        this.clearReconnect(sessionId);
         console.error('[KUZMIX] ❌ Session has been permanently unlinked by WhatsApp.');
         console.error(`[KUZMIX] 🧹 Removing dead session at: ${config.sessionDir}`);
         try {
@@ -94,33 +111,40 @@ class ConnectionHandler {
         return;
       }
 
-      this.reconnectAttempts++;
+      const attempts = (this.reconnectAttempts.get(sessionId) || 0) + 1;
+      this.reconnectAttempts.set(sessionId, attempts);
 
       const isRestart = statusCode === DisconnectReason.restartRequired || statusCode === 515;
       let delayMs;
 
       if (isRestart) {
         delayMs = 0;
-      } else if (this.reconnectAttempts <= this.maxRetries) {
+      } else if (attempts <= this.maxRetries) {
         // Normal backoff: 3s, 4.5s, 6.75s ... up to 30s
-        delayMs = Math.min(config.reconnectBaseDelayMs * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
+        delayMs = Math.min(config.reconnectBaseDelayMs * Math.pow(1.5, attempts - 1), 30000);
       } else {
         // After max retries, keep trying but with 60s cooldown
         delayMs = 60000;
-        console.log(`[KUZMIX] 🔄 Reconnect attempt ${this.reconnectAttempts} — retrying in 60s...`);
+        console.log(`[KUZMIX] 🔄 Reconnect attempt ${attempts} — retrying in 60s...`);
       }
 
       if (!isRestart) {
         console.log(
-          `[KUZMIX] 🔄 Reconnecting attempt ${this.reconnectAttempts} in ${Math.round(delayMs / 1000)}s...`
+          `[KUZMIX] 🔄 Reconnecting attempt ${attempts} in ${Math.round(delayMs / 1000)}s...`
         );
       } else {
         console.log(`[KUZMIX] 🔄 Reconnecting immediately with new session credentials...`);
       }
 
-      setTimeout(() => {
+      // One pending reconnect timer per session (dedupe close events)
+      if (this.reconnectTimers.has(sessionId)) {
+        clearTimeout(this.reconnectTimers.get(sessionId));
+      }
+      const timer = setTimeout(() => {
+        this.reconnectTimers.delete(sessionId);
         if (typeof onRestartCallback === 'function') onRestartCallback();
       }, delayMs);
+      this.reconnectTimers.set(sessionId, timer);
     }
   }
 }

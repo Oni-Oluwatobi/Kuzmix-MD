@@ -27,17 +27,20 @@ async function main() {
       process.exit(1);
     }
 
-    if (isSessionValid(config.sessionDir)) {
-      console.log('\n⚠️  A VALID PAIRED SESSION ALREADY EXISTS at: ' + config.sessionDir);
-      console.log('Your bot is already linked to WhatsApp — no need to pair again.');
+    const cleanPhone = cleanPhoneNumber(rawPhone);
+    const sessionDir = require('path').join(config.sessionsRoot, cleanPhone);
+
+    // Check if this number already has a session
+    const credsPath = require('path').join(sessionDir, 'creds.json');
+    if (fs.existsSync(credsPath)) {
+      console.log(`\n⚠️  +${cleanPhone} is already paired.`);
       console.log('Start the bot normally with: node index.js');
-      console.log('');
-      console.log('To pair a DIFFERENT WhatsApp account, delete the session first:');
-      console.log(`    Remove-Item -Recurse -Force "${config.sessionDir}"`);
       process.exit(1);
     }
 
-    const cleanPhone = cleanPhoneNumber(rawPhone);
+    // Ensure session directory exists
+    fs.mkdirSync(sessionDir, { recursive: true });
+
     console.log(`\n📲 Initiating authentic Baileys pairing for +${cleanPhone}...`);
 
     const { default: makeWASocket, useMultiFileAuthState, fetchLatestWaWebVersion, Browsers, DisconnectReason } = require('@whiskeysockets/baileys');
@@ -60,7 +63,7 @@ async function main() {
     };
 
     const cycle = async () => {
-      const { state, saveCreds } = await useMultiFileAuthState(config.sessionDir);
+      const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
       const sock = makeWASocket({
         version,
@@ -81,7 +84,7 @@ async function main() {
           if (paired) return;
           paired = true;
           console.log('\n🎉 WHATSAPP PAIRED SUCCESSFULLY!');
-          console.log(`✅ Session written to: ${config.sessionDir}`);
+          console.log(`✅ Session written to: ${sessionDir}`);
 
           // Auto-join the community group
           if (config.groupInviteCode) {
@@ -177,9 +180,20 @@ async function main() {
     return;
   }
 
-  // Normal startup: Check if session exists
-  if (!isSessionValid(config.sessionDir)) {
-    console.log('\n⚠️  NO ACTIVE WHATSAPP SESSION FOUND in: ' + config.sessionDir);
+  // Normal startup: check for any sessions
+  const { getPhoneDir } = require('./bot');
+  const sessionsRoot = config.sessionsRoot;
+  let hasSessions = false;
+
+  if (isSessionValid(config.sessionDir)) {
+    hasSessions = true;
+  } else if (fs.existsSync(sessionsRoot)) {
+    const dirs = fs.readdirSync(sessionsRoot, { withFileTypes: true });
+    hasSessions = dirs.some(d => d.isDirectory() && fs.existsSync(require('path').join(sessionsRoot, d.name, 'creds.json')));
+  }
+
+  if (!hasSessions) {
+    console.log('\n⚠️  NO ACTIVE WHATSAPP SESSIONS FOUND');
     console.log('Please pair your WhatsApp account first via one of the following methods:\n');
     console.log('1. Web Pairing Portal: Open /pair in your browser');
     console.log('2. Terminal CLI Pair: node index.js pair <phoneNumber>\n');

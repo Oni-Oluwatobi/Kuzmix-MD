@@ -6,7 +6,7 @@
 
 module.exports = {
   name: 'imagine',
-  aliases: ["image", "draw", "aiimg", "dalle"],
+  aliases: ["draw", "aiimg", "dalle"],
   category: 'aimedia',
   description: 'Generate AI image from text',
   usage: '.imagine futuristic cybernetic lion in neon savanna 8k',

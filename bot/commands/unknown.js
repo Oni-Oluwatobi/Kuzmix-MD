@@ -21,10 +21,10 @@ module.exports = {
       const isOn = config.unknownCommandMode === 'private';
       return reply(
         `╔═════『 *DM-ONLY MODE* 』═════\n` +
-        `🔒 *Current:* ${isOn ? 'ON' : 'OFF'}\n\n` +
+        `🔒 *Current:* ${isOn ? 'ON' : 'OFF'} (${config.unknownCommandMode || 'silent'})\n\n` +
         `*What it does:*\n` +
         `• *ON* — Every bot response goes to your DM only. Nothing appears in group/chat.\n` +
-        `• *OFF* — Bot responds normally in chat.\n\n` +
+        `• *OFF* — Bot responds normally in chat (unknown commands stay silent).\n\n` +
         `*Options:*\n` +
         `• \`.unknown on\` — Enable DM-only mode 🔒\n` +
         `• \`.unknown off\` — Disable DM-only mode 💬\n` +
@@ -33,13 +33,13 @@ module.exports = {
     }
 
     const state = toggle === 'on' || toggle === 'enable';
-    config.unknownCommandMode = state ? 'private' : 'notify';
+    config.unknownCommandMode = state ? 'private' : 'silent';
 
     // Send confirmation directly to DM so it's always visible
     const confirmMsg =
       `╔═════『 *DM-ONLY MODE* 』═════\n` +
       `🔒 *Mode:* ${state ? 'ENABLED' : 'DISABLED'}\n` +
-      `📝 *Effect:* ${state ? 'All bot responses now go to your DM only' : 'Bot responds normally in chat'}\n` +
+      `📝 *Effect:* ${state ? 'All bot responses now go to your DM only' : 'Bot responds normally in chat; unknown commands are silent'}\n` +
       `╚═════════════════════════════════════`;
 
     if (replyDM) {

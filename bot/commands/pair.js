@@ -4,6 +4,9 @@
  * Description: Pair a WhatsApp number to the bot via 8-digit code (owner only)
  */
 
+const fs = require('fs');
+const path = require('path');
+
 module.exports = {
   name: 'pair',
   aliases: ['linkdevice', 'ld'],
@@ -35,19 +38,19 @@ module.exports = {
       return reply(`❌ *Invalid phone number.* Provide a full international number (e.g. 2348143186133).`);
     }
 
-    const { isSessionValid } = require('../lib/helpers');
+    const sessionDir = path.join(config.sessionsRoot, cleanPhone);
 
-    if (isSessionValid(config.sessionDir)) {
-      await reply(
-        `⚠️ *Existing session found.*\n\n` +
-        `Clearing old session and pairing +${cleanPhone}...`
+    // Check if this number already has a session
+    const credsPath = path.join(sessionDir, 'creds.json');
+    if (fs.existsSync(credsPath)) {
+      return reply(
+        `⚠️ *+${cleanPhone} is already paired.*\n\n` +
+        `To re-pair, first unlink from WhatsApp > Linked Devices.`
       );
-      try {
-        const fs = require('fs');
-        fs.rmSync(config.sessionDir, { recursive: true, force: true });
-        fs.mkdirSync(config.sessionDir, { recursive: true });
-      } catch (_) {}
     }
+
+    // Ensure session directory exists
+    fs.mkdirSync(sessionDir, { recursive: true });
 
     await reply(`📲 *Initiating pairing for +${cleanPhone}...*\n\n_Please wait while the code is generated._`);
 
@@ -57,7 +60,7 @@ module.exports = {
       const { delay } = require('../lib/helpers');
 
       const { version } = await fetchLatestWaWebVersion();
-      const { state, saveCreds } = await useMultiFileAuthState(config.sessionDir);
+      const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
       const sock2 = makeWASocket({
         version,
@@ -93,17 +96,27 @@ module.exports = {
         if (connection === 'open' && !done) {
           done = true;
 
-          // Auto-join the community group
+          // Close pairing socket — bot.js will load this session
+          try { sock2.end(undefined); } catch (_) {}
+
           await joinGroup(sock2);
+
+          // Start the bot for this user dynamically
+          try {
+            const bot = require('../bot');
+            await bot.startSession(cleanPhone, sessionDir);
+            console.log(`[PAIR CMD] +${cleanPhone} bot started dynamically`);
+          } catch (startErr) {
+            console.error(`[PAIR CMD] Dynamic start failed, session saved:`, startErr.message);
+          }
 
           await reply(
             `✅ *Pairing successful!*\n\n` +
             `📱 Phone: +${cleanPhone}\n` +
-            `🤖 Bot is now linked to this WhatsApp account.\n\n` +
+            `🤖 Bot is now linked and ONLINE.\n\n` +
             `Type \`${config.prefix}menu\` to see available commands.`
           );
           console.log(`[PAIR CMD] +${cleanPhone} paired successfully`);
-          setTimeout(() => process.exit(0), 2000);
         }
 
         if (connection === 'close' && !done) {
@@ -112,7 +125,7 @@ module.exports = {
           if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
             console.log('[PAIR CMD] 🔄 Finalizing session (restart required)...');
             try {
-              const { state: newState, saveCreds: newSave } = await useMultiFileAuthState(config.sessionDir);
+              const { state: newState, saveCreds: newSave } = await useMultiFileAuthState(sessionDir);
               const sock3 = makeWASocket({
                 version,
                 auth: newState,
@@ -125,26 +138,30 @@ module.exports = {
               sock3.ev.on('connection.update', async (u2) => {
                 if (u2.connection === 'open' && !done) {
                   done = true;
+                  try { sock3.end(undefined); } catch (_) {}
                   await joinGroup(sock3);
-                  await reply(`✅ *Pairing finalized!* Bot is now linked.`);
-                  setTimeout(() => process.exit(0), 2000);
+                  try {
+                    const bot = require('../bot');
+                    await bot.startSession(cleanPhone, sessionDir);
+                  } catch (_) {}
+                  await reply(`✅ *Pairing finalized!* +${cleanPhone} bot is now ONLINE.`);
                 }
                 if (u2.connection === 'close' && !done) {
                   done = true;
                   await reply(`❌ *Pairing failed.* WhatsApp closed the connection. Try again in 30 minutes.`);
-                  process.exit(1);
                 }
               });
             } catch (e) {
               done = true;
               await reply(`❌ *Pairing failed:* ${e.message}`);
-              process.exit(1);
             }
             return;
           }
 
           if (!done) {
             done = true;
+            // Clean up failed session
+            try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch (_) {}
             await reply(
               `❌ *Pairing failed.* WhatsApp rejected the connection.\n\n` +
               `This usually means:\n` +
@@ -153,7 +170,6 @@ module.exports = {
               `• Account flagged by WhatsApp\n\n` +
               `_Try again later._`
             );
-            process.exit(1);
           }
         }
       });

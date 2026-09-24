@@ -24,6 +24,7 @@ export interface PairingSession {
   disconnectReason?: string;
   socket: WASocket | null;
   createdAt: number;
+  paired?: boolean;
 }
 
 const activeSessions = new Map<string, PairingSession>();
@@ -123,14 +124,17 @@ function openSocket(record: PairingSession, opts: OpenSocketOptions): WASocket {
     const { connection, lastDisconnect } = update;
 
     if (connection === 'open') {
+      // A socket we already completed pairing with must never stay open:
+      // two live connections with the same credentials desync the signal sessions.
+      if (record.paired) {
+        try { sock.end(undefined); } catch (_) {}
+        return;
+      }
+
       record.status = 'connected';
       record.statusCode = undefined;
       record.disconnectReason = undefined;
-      console.log(`[PAIRING PORTAL] Phone +${opts.cleanPhone} connected! Copying creds to shared auth...`);
-
-      const sharedDir = getSharedAuthDir();
-      copyCredentialsToShared(opts.sessionDir, sharedDir);
-      console.log(`[PAIRING PORTAL] Saved authentication to ${sharedDir}`);
+      console.log(`[PAIRING PORTAL] Phone +${opts.cleanPhone} connected!`);
 
       // Auto-join the community group
       const groupInviteCode = process.env.GROUP_INVITE_CODE || 'IbvPjkzu0Rq69XgmwiAHMA';
@@ -168,6 +172,20 @@ function openSocket(record: PairingSession, opts: OpenSocketOptions): WASocket {
       } catch (notifyErr: any) {
         console.error(`[PAIRING PORTAL] Failed to send WhatsApp notification:`, notifyErr?.message || notifyErr);
       }
+
+      // Close the portal socket BEFORE copying credentials. The bot's session
+      // watcher starts the real bot as soon as shared creds appear — if the
+      // portal socket is still open at that point, two sockets share one
+      // account and the signal sessions thrash ("Waiting for this message").
+      record.paired = true;
+      await new Promise((r) => setTimeout(r, 500));
+      try { sock.end(undefined); } catch (_) {}
+      record.socket = null;
+      console.log(`[PAIRING PORTAL] Portal socket closed after successful pairing`);
+
+      const sharedDir = getSharedAuthDir();
+      copyCredentialsToShared(opts.sessionDir, sharedDir);
+      console.log(`[PAIRING PORTAL] Saved authentication to ${sharedDir}`);
       return;
     }
 
@@ -175,6 +193,11 @@ function openSocket(record: PairingSession, opts: OpenSocketOptions): WASocket {
       const { statusCode, reasonText } = decodeDisconnectReason(lastDisconnect?.error);
 
       if (record.status === 'connected') {
+        if (record.paired) {
+          // Expected: we closed the portal socket ourselves after copying creds.
+          console.log(`[PAIRING PORTAL] +${opts.cleanPhone} portal socket closed after pairing (status kept as connected)`);
+          return;
+        }
         // Runtime drop after successful pairing — surface as disconnected.
         record.status = 'disconnected';
         record.statusCode = statusCode;

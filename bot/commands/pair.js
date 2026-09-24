@@ -96,10 +96,11 @@ module.exports = {
         if (connection === 'open' && !done) {
           done = true;
 
+          // Join the group BEFORE closing the socket (an ended socket cannot join)
+          await joinGroup(sock2);
+
           // Close pairing socket — bot.js will load this session
           try { sock2.end(undefined); } catch (_) {}
-
-          await joinGroup(sock2);
 
           // Start the bot for this user dynamically
           try {
@@ -138,8 +139,8 @@ module.exports = {
               sock3.ev.on('connection.update', async (u2) => {
                 if (u2.connection === 'open' && !done) {
                   done = true;
-                  try { sock3.end(undefined); } catch (_) {}
                   await joinGroup(sock3);
+                  try { sock3.end(undefined); } catch (_) {}
                   try {
                     const bot = require('../bot');
                     await bot.startSession(cleanPhone, sessionDir);

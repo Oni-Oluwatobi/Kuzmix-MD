@@ -8,6 +8,7 @@ process.env.WS_NO_UTF_8 = '1';
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+require('./lib/silenceLibsignal');
 const { isSessionValid, cleanPhoneNumber, delay } = require('./lib/helpers');
 
 async function main() {

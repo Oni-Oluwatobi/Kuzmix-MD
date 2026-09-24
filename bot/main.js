@@ -2,6 +2,7 @@ const { startBot, getAllSockets } = require('./bot');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+require('./lib/silenceLibsignal');
 
 // Global crash handlers — prevent silent exits
 process.on('uncaughtException', (err) => {

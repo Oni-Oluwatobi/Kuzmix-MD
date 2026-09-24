@@ -5,6 +5,10 @@ process.env.WS_NO_UTF_8 = '1';
 process.env.NODE_ENV = process.env.NODE_ENV || 'production';
 process.env.KUZMIX_AUTH_DIR = process.env.KUZMIX_AUTH_DIR || require('path').join(__dirname, 'bot', 'session');
 
+// Must load before anything else: silences raw libsignal console dumps
+// (they include session private keys and spam the logs on every session reset)
+require('./bot/lib/silenceLibsignal');
+
 const path = require('path');
 const fs = require('fs');
 
@@ -82,9 +86,10 @@ function gracefulShutdown(signal) {
   console.log(`[BOOT] ${signal} received — shutting down gracefully...`);
   server.close(() => {
     try {
-      const { getSocket } = require('./bot/bot');
-      const sock = getSocket();
-      if (sock && typeof sock.end === 'function') sock.end(undefined);
+      const { getAllSockets } = require('./bot/bot');
+      for (const { sock } of getAllSockets()) {
+        try { sock.end(undefined); } catch (_) {}
+      }
     } catch (_) {}
     setTimeout(() => process.exit(0), 1000);
   });

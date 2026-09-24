@@ -7,14 +7,26 @@ const { default: makeWASocket, useMultiFileAuthState, fetchLatestWaWebVersion, B
 const config = require('./config');
 const logger = require('./lib/logger');
 const messageStore = require('./lib/messageStore');
+require('./lib/silenceLibsignal');
 const connectionHandler = require('./handlers/connectionHandler');
 const commandHandler = require('./handlers/commandHandler');
 const { handleMessage } = require('./handlers/messageHandler');
 
 const sockets = new Map();
+const startingSessions = new Map();
 
 function getPhoneDir(phone) {
   return path.join(config.sessionsRoot, phone);
+}
+
+function getSessionAccountNumber(dir) {
+  try {
+    const creds = JSON.parse(fs.readFileSync(path.join(dir, 'creds.json'), 'utf8'));
+    const id = (creds && creds.me && creds.me.id) || '';
+    return String(id).split('@')[0].split(':')[0].replace(/\D/g, '') || null;
+  } catch (_) {
+    return null;
+  }
 }
 
 function getAllSessionDirs() {
@@ -39,7 +51,39 @@ function getAllSessionDirs() {
     }
   }
 
-  return dirs;
+  // Dedupe by account number: two sessions for the SAME account would open two
+  // sockets with the same credentials, which desyncs the signal sessions
+  // ("Waiting for this message" / "closed session" churn). Keep the newest creds.
+  const byAccount = new Map();
+  const deduped = [];
+  const credsAge = (dir) => {
+    try { return fs.statSync(path.join(dir, 'creds.json')).mtimeMs; } catch (_) { return 0; }
+  };
+
+  for (const d of dirs) {
+    const acct = getSessionAccountNumber(d.dir);
+    if (!acct) {
+      deduped.push(d);
+      continue;
+    }
+    const existing = byAccount.get(acct);
+    if (!existing) {
+      byAccount.set(acct, d);
+      deduped.push(d);
+      continue;
+    }
+    if (credsAge(d.dir) > credsAge(existing.dir)) {
+      console.warn(`[KUZMIX] Duplicate session for +${acct}: keeping ${d.dir}, ignoring ${existing.dir}`);
+      const idx = deduped.indexOf(existing);
+      if (idx >= 0) deduped.splice(idx, 1);
+      byAccount.set(acct, d);
+      deduped.push(d);
+    } else {
+      console.warn(`[KUZMIX] Duplicate session for +${acct}: keeping ${existing.dir}, ignoring ${d.dir}`);
+    }
+  }
+
+  return deduped;
 }
 
 async function startBot() {
@@ -61,11 +105,27 @@ async function startBot() {
 }
 
 async function startSession(phone, sessionDir) {
+  // Single-flight: concurrent calls (watchdog + reconnect timer + .pair) must
+  // never create two sockets for the same account.
+  if (startingSessions.has(phone)) return startingSessions.get(phone);
+
+  const task = startSessionExclusive(phone, sessionDir)
+    .finally(() => startingSessions.delete(phone));
+  startingSessions.set(phone, task);
+  return task;
+}
+
+async function startSessionExclusive(phone, sessionDir) {
   if (sockets.has(phone)) {
-    try { sockets.get(phone).end(undefined); } catch (_) {}
+    const old = sockets.get(phone);
+    // Ignore future close events from the socket we are about to replace,
+    // otherwise its teardown schedules ANOTHER reconnect that kills the new socket.
+    old._replaced = true;
+    connectionHandler.clearReconnect(phone);
+    try { old.end(undefined); } catch (_) {}
     sockets.delete(phone);
+    await new Promise(r => setTimeout(r, 400));
   }
-  connectionHandler.clearReconnect(phone);
 
   console.log(`[KUZMIX] Starting session for +${phone} from: ${sessionDir}`);
 
@@ -95,6 +155,7 @@ async function startSession(phone, sessionDir) {
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', (update) => {
+    if (sock._replaced) return;
     if (update.connection === 'open') {
       console.log(`[KUZMIX] 🟢 +${phone} connected`);
     }
@@ -104,6 +165,7 @@ async function startSession(phone, sessionDir) {
   });
 
   sock.ev.on('messages.upsert', (m) => {
+    if (sock._replaced) return;
     if (m.type !== 'notify') return;
     handleMessage(sock, m).catch(err => console.error(`[KUZMIX MSG ${phone}]`, err));
   });

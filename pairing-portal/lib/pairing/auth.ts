@@ -22,6 +22,9 @@ export function copyCredentialsToShared(sourceDir: string, targetDir: string): b
 
     const files = fs.readdirSync(sourceDir);
     for (const file of files) {
+      // Never carry signal session ratchets between directories -- they can
+      // be poisoned by the pairing socket. The bot rebuilds them fresh.
+      if (file.startsWith('session-')) continue;
       const srcFile = path.join(sourceDir, file);
       const destFile = path.join(targetDir, file);
       if (fs.statSync(srcFile).isFile()) {

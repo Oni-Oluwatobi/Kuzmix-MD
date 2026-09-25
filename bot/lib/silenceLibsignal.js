@@ -20,10 +20,22 @@ const NOISE_PREFIXES = [
   'Session error:',
 ];
 
+function looksLikeSessionDump(value) {
+  if (!value || typeof value !== 'object') return false;
+  // libsignal SessionEntry shape (also catches minified/bare-object logs
+  // that carry no recognizable prefix -- and contain private keys)
+  return !!(value.currentRatchet || value._chains || value.indexInfo);
+}
+
 function isNoise(args) {
   const first = args[0];
-  if (typeof first !== 'string') return false;
-  return NOISE_PREFIXES.some(p => first.startsWith(p));
+  if (typeof first === 'string' && NOISE_PREFIXES.some(p => first.startsWith(p))) {
+    return true;
+  }
+  for (const arg of args) {
+    if (looksLikeSessionDump(arg)) return true;
+  }
+  return false;
 }
 
 let installed = false;

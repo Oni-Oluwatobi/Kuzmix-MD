@@ -8,6 +8,7 @@ const config = require('./config');
 const logger = require('./lib/logger');
 const messageStore = require('./lib/messageStore');
 require('./lib/silenceLibsignal');
+const { purgeSignalSessions } = require('./lib/healSignalSessions');
 const connectionHandler = require('./handlers/connectionHandler');
 const commandHandler = require('./handlers/commandHandler');
 const { handleMessage } = require('./handlers/messageHandler');
@@ -128,6 +129,13 @@ async function startSessionExclusive(phone, sessionDir) {
   }
 
   console.log(`[KUZMIX] Starting session for +${phone} from: ${sessionDir}`);
+
+  // Heal: persisted signal sessions can be poisoned (stuck "Waiting for this
+  // message"). Clear them so all sessions rebuild fresh from prekey bundles.
+  const cleared = purgeSignalSessions(sessionDir);
+  if (cleared > 0) {
+    console.log(`[KUZMIX] Signal heal: cleared ${cleared} stale session file(s) for +${phone}`);
+  }
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
   const { version } = await fetchLatestWaWebVersion();

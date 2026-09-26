@@ -262,13 +262,14 @@ export function PairingPortal({
           {/* Hero */}
           <div className="mb-8 text-center sm:mb-9">
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#FFA51C]">
-              Kuzmix AI
+              Secure device linking
             </p>
-            <h1 className="mt-3.5 text-[34px] font-bold leading-[1.1] tracking-tight sm:text-[44px]">
-              Pair your device
+            <h1 className="mx-auto mt-3.5 max-w-[500px] text-[30px] font-bold leading-[1.12] tracking-[-0.02em] text-[#F5F5F5] sm:text-[40px]">
+              Pair your WhatsApp with Kuzmix AI
             </h1>
-            <p className="mx-auto mt-3.5 max-w-[400px] text-[15px] leading-relaxed text-[#9B9BA3]">
-              Connect your WhatsApp session securely and continue using Kuzmix AI.
+            <p className="mx-auto mt-4 max-w-[430px] text-[15px] leading-relaxed text-[#9B9BA3]">
+              Connect your session with a one-time 8-digit code issued by WhatsApp — no QR
+              scanning required.
             </p>
           </div>
 

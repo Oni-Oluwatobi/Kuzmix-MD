@@ -67,14 +67,22 @@ async function handleMessage(sock, m) {
       Array.isArray(config.owner) &&
       config.owner.some(o => String(o) === senderNumber);
 
+    // The paired account itself is the operator of its own session: commands
+    // it sends (synced from its own primary device) must always pass the gates.
+    // Owner-only commands (exec/eval/pair/...) still require config.owner.
+    const ownNumber = sock.user ? extractNumber(sock.user.id) : '';
+    const isSessionOperator = Boolean(senderNumber) && Boolean(ownNumber) &&
+      senderNumber === ownNumber;
+    const passesGates = isOwner || isSessionOperator;
+
     // --- Safety gates (fail closed, before body is even parsed) ---
-    // Groups: silent unless public mode is on (owner always allowed)
-    if (isGroup && !config.publicMode && !isOwner) return;
-    // DMs: private mode = owner only
-    if (!isGroup && config.privateMode && !isOwner) return;
+    // Groups: silent unless public mode is on (session operator always allowed)
+    if (isGroup && !config.publicMode && !passesGates) return;
+    // DMs: private mode = session operator only
+    if (!isGroup && config.privateMode && !passesGates) return;
     // Legacy mode filters
-    if (config.mode === 'private' && isGroup && !isOwner) return;
-    if (config.mode === 'groups-only' && !isGroup && !isOwner) return;
+    if (config.mode === 'private' && isGroup && !passesGates) return;
+    if (config.mode === 'groups-only' && !isGroup && !passesGates) return;
 
     let body = extractMessageText(msg);
     body = String(body || '').trim();

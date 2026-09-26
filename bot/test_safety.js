@@ -42,8 +42,10 @@ async function run() {
   const OWNER = '2349124846023';
   const USER = '2340999999999';
 
-  async function fire({ jid, participant, id, fromMe, text }) {
-    sent.length = 0;
+  async function fire({ jid, participant, id, fromMe, text, useSock, sink }) {
+    const targetSock = useSock || sock;
+    const sinkArr = sink || sent;
+    sinkArr.length = 0;
     const msg = {
       key: {
         remoteJid: jid,
@@ -53,8 +55,8 @@ async function run() {
       },
       message: { conversation: text },
     };
-    await handleMessage(sock, { type: 'notify', messages: [msg] });
-    return sent.slice();
+    await handleMessage(targetSock, { type: 'notify', messages: [msg] });
+    return sinkArr.slice();
   }
 
   // --- Spec: config defaults (private by default, strict on, silent unknowns) ---
@@ -168,6 +170,48 @@ async function run() {
   // --- Spec: prefixed path still accepts args in strict mode ---
   out = await fire({ jid: OWNER + '@s.whatsapp.net', id: 'T_ARGS', text: '.menu pair' });
   check('strict ON: prefixed ".menu pair" responds', out.length >= 1);
+
+  // --- Spec: the paired account is the operator of its own session ---
+  const pairSent = [];
+  const pairSock = {
+    user: { id: USER + ':2@s.whatsapp.net' },
+    sendMessage: async (jid, content, options) => {
+      pairSent.push({ jid, content, options });
+      return { key: { id: 'PAIR_' + pairSent.length, remoteJid: jid } };
+    },
+    groupMetadata: async () => ({ participants: [] }),
+  };
+
+  out = await fire({
+    jid: '123456789@g.us',
+    participant: USER + '@s.whatsapp.net',
+    id: 'T_OWN_GROUP',
+    text: '.ping',
+    useSock: pairSock,
+    sink: pairSent,
+  });
+  check('paired account .ping in group responds (session operator)', out.length === 1);
+
+  out = await fire({
+    jid: USER + '@s.whatsapp.net',
+    id: 'T_OWN_DM',
+    text: '.ping',
+    useSock: pairSock,
+    sink: pairSent,
+  });
+  check('paired account .ping in own DM responds (session operator)', out.length === 1);
+
+  out = await fire({
+    jid: USER + '@s.whatsapp.net',
+    id: 'T_OWN_EVAL',
+    text: '.eval',
+    useSock: pairSock,
+    sink: pairSent,
+  });
+  check(
+    'paired account still blocked from owner-only .eval',
+    out.length === 1 && out[0].content && String(out[0].content.text).includes('Access Denied')
+  );
 
   console.log(`\n========================================`);
   console.log(`SAFETY RESULTS: ${passed} passed, ${failed} failed.`);

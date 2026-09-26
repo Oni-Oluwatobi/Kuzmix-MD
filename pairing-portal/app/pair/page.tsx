@@ -9,7 +9,7 @@ export const metadata = {
 
 export default function StandalonePairingPage() {
   return (
-    <main className="min-h-screen bg-[#0a0704]">
+    <main className="min-h-screen bg-[#090A0C]">
       <PairingPortal
         botName="Kuzmix-MD"
         developerName="Oni Oluwatobi"

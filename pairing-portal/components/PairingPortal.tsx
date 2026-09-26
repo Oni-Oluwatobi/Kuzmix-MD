@@ -3,19 +3,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Link2,
-  LayoutGrid,
-  HelpCircle,
-  Info,
   ChevronDown,
-  ArrowRight,
   Copy,
   Check,
   RotateCcw,
-  ShieldCheck,
   AlertCircle,
   CheckCircle2,
   Loader2,
-  BookOpen,
   Zap,
 } from 'lucide-react';
 
@@ -40,36 +34,21 @@ interface PairingPortalProps {
   organization?: string;
 }
 
-const NAV: {
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  href: string;
-  active?: boolean;
-}[] = [
-  { label: 'Pair Device', icon: Link2, href: '#pair', active: true },
-  { label: 'Features', icon: LayoutGrid, href: '#how-to' },
-  { label: 'Help', icon: HelpCircle, href: '#how-to' },
-  { label: 'About', icon: Info, href: '#about' },
-];
-
-const STEPS = [
-  {
-    title: 'Open WhatsApp on your phone',
-    desc: 'Android: tap the 3 dots top-right. iPhone: tap Settings bottom-right.',
+const STATUS_META: Record<
+  LiveStatus,
+  { label: string; dot: string; text: string; pulse?: boolean }
+> = {
+  idle: { label: 'Ready', dot: 'bg-white/40', text: 'text-[#9B9BA3]' },
+  requesting: {
+    label: 'Requesting',
+    dot: 'bg-[#FFA51C]',
+    text: 'text-[#FFA51C]',
+    pulse: true,
   },
-  {
-    title: 'Tap "Linked Devices"',
-    desc: 'Select "Linked devices", then press the green "Link a device" button.',
-  },
-  {
-    title: 'Choose "Link with phone number"',
-    desc: 'Tap "Link with phone number instead" at the bottom of the camera screen.',
-  },
-  {
-    title: 'Enter the 8-digit code',
-    desc: 'Type the code generated on this page into WhatsApp to complete the link.',
-  },
-];
+  verifying: { label: 'Pairing', dot: 'bg-[#FFA51C]', text: 'text-[#FFA51C]', pulse: true },
+  connected: { label: 'Connected', dot: 'bg-[#22C55E]', text: 'text-[#22C55E]' },
+  error: { label: 'Error', dot: 'bg-red-400', text: 'text-red-300' },
+};
 
 function WhatsAppGlyph({ className }: { className?: string }) {
   return (
@@ -219,196 +198,216 @@ export function PairingPortal({
 
   const formatTimer = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
+  const isExpired = liveStatus === 'error' && !!error && error.toLowerCase().includes('expired');
+  const statusMeta = STATUS_META[liveStatus];
+  const statusLabel = isExpired ? 'Expired' : statusMeta.label;
+
+  const helperText =
+    liveStatus === 'verifying'
+      ? 'In WhatsApp, open Linked devices → Link with phone number and enter the code above. This page updates automatically.'
+      : liveStatus === 'connected'
+        ? 'The session has been saved securely — you can close this page.'
+        : liveStatus === 'error'
+          ? 'If this keeps happening, wait a few minutes before requesting another code.'
+          : 'In WhatsApp: Settings → Linked devices → Link with phone number. Codes are valid for 2 minutes and your number is never stored.';
+
+  const inputClass =
+    'h-12 w-full rounded-xl border border-white/[0.14] bg-white/[0.05] text-[15px] text-[#F5F5F5] outline-none transition duration-200 hover:border-white/[0.22] focus:border-[#FFA51C] focus:ring-2 focus:ring-[#FFA51C]/25';
+
+  const primaryButtonClass =
+    'flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#FFA51C] px-5 text-[14px] font-semibold text-[#090A0C] transition duration-200 hover:bg-[#FFB84D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFA51C]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#090A0C] disabled:cursor-not-allowed disabled:opacity-50';
+
+  const ghostButtonClass =
+    'flex h-12 items-center justify-center gap-2 rounded-xl border border-white/[0.14] bg-white/[0.03] px-5 text-[13.5px] font-medium text-[#C9C9D1] transition duration-200 hover:border-white/25 hover:text-[#F5F5F5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50';
+
   return (
-    <div className="min-h-screen bg-[#090A0C] text-[#F5F5F5] antialiased selection:bg-[#FFA51C] selection:text-[#090A0C]">
-      {/* Header */}
-      <header className="border-b border-white/[0.08]">
-        <div className="mx-auto flex h-20 max-w-[1400px] items-center justify-between gap-6 px-6 sm:h-24 sm:px-10 lg:px-16">
-          {/* Brand */}
-          <a href="#pair" className="flex shrink-0 items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#FFA51C]">
-              <Zap className="h-5 w-5 fill-[#090A0C] text-[#090A0C]" />
+    <div className="flex min-h-screen flex-col text-[#F5F5F5] antialiased selection:bg-[#FFA51C] selection:text-[#090A0C]">
+      {/* Floating glass navigation */}
+      <header className="sticky top-0 z-30 px-4 pt-4 sm:px-6 sm:pt-5">
+        <nav className="mx-auto flex max-w-5xl items-center justify-between gap-4 rounded-2xl border border-white/[0.12] bg-white/[0.06] px-4 py-2.5 shadow-[0_10px_40px_-16px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:px-5">
+          <a href="#pair" className="flex shrink-0 items-center gap-2.5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#FFA51C]">
+              <Zap className="h-3.5 w-3.5 fill-[#090A0C] text-[#090A0C]" />
             </span>
-            <span className="flex flex-col leading-none">
-              <span className="text-[22px] font-bold tracking-tight text-[#F5F5F5]">
-                Kuzmix<span className="text-[#FFA51C]">-MD</span>
-              </span>
-              <span className="mt-1.5 text-[9px] font-medium uppercase tracking-[0.3em] text-[#6E6E76]">
-                The Kreadive Galaxy
-              </span>
+            <span className="text-[15px] font-semibold tracking-tight text-[#F5F5F5]">
+              Kuzmix AI
             </span>
           </a>
-
-          {/* Navigation */}
-          <nav className="hidden items-center gap-8 lg:flex">
-            {NAV.map((item) => (
-              <a
-                key={item.label}
-                href={item.href}
-                className={`flex items-center gap-2 border-b-2 pb-1 text-sm transition-colors ${
-                  item.active
-                    ? 'border-[#FFA51C] font-semibold text-[#FFA51C]'
-                    : 'border-transparent font-medium text-[#C9C9D1] hover:text-[#F5F5F5]'
-                }`}
-              >
-                <item.icon className="h-4 w-4" />
-                {item.label}
+          <div className="flex items-center gap-4 sm:gap-5">
+            <div className="flex items-center gap-4 text-[13px] font-medium sm:gap-5">
+              <a href="#pair" className="font-semibold text-[#F5F5F5]">
+                Pair
               </a>
-            ))}
-          </nav>
-
-          {/* Engine status */}
-          <div className="hidden shrink-0 items-center gap-3 rounded-xl border border-white/10 px-3.5 py-2 sm:flex">
-            <span className="h-2 w-2 rounded-full bg-[#22C55E]" />
-            <span className="flex flex-col leading-tight">
-              <span className="text-xs font-semibold text-[#F5F5F5]">Baileys MD Engine</span>
-              <span className="text-[10px] text-[#6E6E76]">Fast · Secure · Reliable</span>
-            </span>
-            <span className="ml-1 rounded-full bg-[#22C55E] px-2 py-0.5 text-[10px] font-bold uppercase text-white">
-              Live
+              <a
+                href="#help"
+                className="text-[#9B9BA3] transition-colors duration-200 hover:text-[#F5F5F5]"
+              >
+                Guide
+              </a>
+            </div>
+            <span className="hidden items-center gap-1.5 rounded-full border border-white/[0.10] bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-[#9B9BA3] sm:flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E]" />
+              Engine live
             </span>
           </div>
-        </div>
+        </nav>
       </header>
 
-      <main className="mx-auto max-w-[1400px] px-6 sm:px-10 lg:px-16">
-        {/* Page intro */}
-        <section className="pt-14 sm:pt-16 lg:pt-20">
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-bold uppercase tracking-[0.18em] text-[#FFA51C]">
-              WhatsApp Device Linking
-            </span>
-            <span className="h-[2px] w-8 bg-[#FFA51C]" />
-          </div>
-          <h1 className="mt-5 max-w-3xl text-[34px] font-bold leading-[1.15] tracking-tight sm:text-[42px]">
-            Connect Your WhatsApp to <span className="text-[#FFC933]">Kuzmix-MD</span>
-          </h1>
-          <p className="mt-4 max-w-2xl text-[15px] leading-[1.7] text-[#9B9BA3]">
-            Link your number with a real, WhatsApp-issued 8-digit pairing code — generated live by
-            the Baileys Multi-Device engine, no QR scanning required.
-          </p>
-        </section>
-
-        {/* Two-column content */}
-        <div className="mt-12 grid grid-cols-1 gap-10 pb-4 lg:mt-16 lg:grid-cols-[1.55fr_1fr] lg:gap-0">
-          {/* Left: pairing */}
-          <section id="pair" className="lg:pr-16">
-            <div className="flex items-center gap-3">
-              <WhatsAppGlyph className="h-7 w-7 text-[#25D366]" />
-              <h2 className="text-xl font-semibold tracking-tight">Enter Your WhatsApp Phone Number</h2>
-            </div>
-            <p className="mt-2 text-sm text-[#9B9BA3]">
-              Use your real WhatsApp number with country code.
+      {/* Main pairing area */}
+      <main
+        id="pair"
+        className="flex flex-1 scroll-mt-24 flex-col items-center justify-center px-5 py-10 sm:py-14"
+      >
+        <div className="w-full max-w-[560px]">
+          {/* Hero */}
+          <div className="mb-8 text-center sm:mb-9">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#FFA51C]">
+              Kuzmix AI
             </p>
+            <h1 className="mt-3.5 text-[34px] font-bold leading-[1.1] tracking-tight sm:text-[44px]">
+              Pair your device
+            </h1>
+            <p className="mx-auto mt-3.5 max-w-[400px] text-[15px] leading-relaxed text-[#9B9BA3]">
+              Connect your WhatsApp session securely and continue using Kuzmix AI.
+            </p>
+          </div>
 
-            {(liveStatus === 'idle' || liveStatus === 'requesting') && (
-              <div>
-                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                  <div className="relative w-full shrink-0 sm:w-[190px]">
-                    <select
-                      value={countryCode}
-                      onChange={(e) => setCountryCode(e.target.value)}
-                      aria-label="Country code"
-                      className="h-14 w-full cursor-pointer appearance-none rounded-xl border border-[#24272C] bg-[#0D0F12] pl-4 pr-10 text-sm font-medium text-[#F5F5F5] outline-none transition focus:border-[#FFA51C]"
-                    >
-                      {COUNTRY_CODES.map((c) => (
-                        <option key={c.code} value={c.code} className="bg-[#0D0F12]">
-                          {`${c.flag}  ${c.iso}  +${c.code}`}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6E6E76]" />
-                  </div>
-                  <input
-                    type="tel"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
-                    placeholder="e.g. 8143186133"
-                    aria-label="WhatsApp phone number"
-                    className="h-14 w-full flex-1 rounded-xl border border-[#24272C] bg-[#0D0F12] px-4 text-base text-[#F5F5F5] outline-none transition placeholder:text-[#5A5A62] focus:border-[#FFA51C]"
-                  />
-                </div>
+          {/* Single glass panel */}
+          <div className="rounded-[22px] border border-white/[0.14] bg-white/[0.07] p-5 shadow-[0_30px_60px_-30px_rgba(0,0,0,0.7)] backdrop-blur-[22px] sm:p-7">
+            {/* Panel header: section label + live status */}
+            <div className="flex items-center justify-between gap-3 border-b border-white/[0.10] pb-4">
+              <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#9B9BA3]">
+                <WhatsAppGlyph className="h-3.5 w-3.5 text-[#25D366]" />
+                Device pairing
+              </span>
+              <span
+                className={`flex items-center gap-1.5 rounded-full border border-white/[0.10] bg-white/[0.04] px-2.5 py-1 text-[11px] font-semibold ${statusMeta.text}`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${statusMeta.dot} ${statusMeta.pulse ? 'animate-pulse' : ''}`}
+                />
+                {statusLabel}
+              </span>
+            </div>
 
-                <p className="mt-4 flex items-center gap-2 text-xs text-[#9B9BA3]">
-                  <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-[#22C55E]" />
-                  <span>
-                    Your information is secure <span className="text-[#22C55E]">and never stored</span>.
-                  </span>
-                </p>
-
-                <button
-                  type="button"
-                  onClick={handleGenerate}
-                  disabled={isGenerating || !phoneNumber.trim()}
-                  className="relative mt-6 flex h-14 w-full items-center justify-center gap-2.5 rounded-xl bg-[#FFA51C] px-6 text-[15px] font-semibold text-[#090A0C] transition hover:bg-[#FFB53F] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>Requesting code from WhatsApp…</span>
-                    </>
-                  ) : (
-                    <>
-                      <Link2 className="h-4 w-4" />
-                      <span>Generate 8-Digit Pairing Code</span>
-                      <ArrowRight className="absolute right-6 hidden h-4 w-4 sm:block" />
-                    </>
-                  )}
-                </button>
-              </div>
-            )}
-
-            {/* Pairing code */}
-            {(liveStatus === 'verifying' || liveStatus === 'connected') && code && (
-              <div className="mt-7">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-[#FFA51C]">
-                    Pairing Code
-                  </span>
-                  <span className="font-mono text-xs text-[#9B9BA3]">
-                    {liveStatus === 'connected' ? (
-                      <span className="font-semibold text-[#22C55E]">Linked</span>
-                    ) : (
-                      `Expires in ${formatTimer(expiresIn)}`
-                    )}
-                  </span>
-                </div>
-
-                <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] py-7 text-center">
-                  <span className="select-all font-mono text-4xl font-bold tracking-[0.25em] text-[#F5F5F5] sm:text-5xl">
-                    {code}
-                  </span>
-                </div>
-
-                {liveStatus === 'connected' ? (
-                  <div className="mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-[#22C55E]">
-                      <CheckCircle2 className="h-4 w-4 shrink-0" />
-                      Device Successfully Linked to {botName}!
+            {/* Panel body */}
+            <div className="pt-5">
+              {(liveStatus === 'idle' || liveStatus === 'requesting') && (
+                <div>
+                  <label
+                    htmlFor="phone"
+                    className="mb-2.5 block text-[12px] font-medium text-[#9B9BA3]"
+                  >
+                    WhatsApp phone number
+                  </label>
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    <div className="relative w-full shrink-0 sm:w-[168px]">
+                      <select
+                        value={countryCode}
+                        onChange={(e) => setCountryCode(e.target.value)}
+                        aria-label="Country code"
+                        className={`${inputClass} cursor-pointer appearance-none pl-3.5 pr-10 font-medium`}
+                      >
+                        {COUNTRY_CODES.map((c) => (
+                          <option key={c.code} value={c.code} className="bg-[#0D0F12]">
+                            {`${c.flag}  ${c.iso}  +${c.code}`}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6E6E76]" />
                     </div>
-                    <p className="mt-1.5 text-xs leading-relaxed text-[#9B9BA3]">
-                      Your WhatsApp session credentials were authenticated and saved to the
-                      bot&apos;s session store at {connectedAt}. Start the bot with{' '}
-                      <span className="font-mono text-[#C9C9D1]">node index.js</span>.
+                    <input
+                      id="phone"
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
+                      placeholder="e.g. 8143186133"
+                      aria-label="WhatsApp phone number"
+                      className={`${inputClass} min-w-0 px-4`}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleGenerate}
+                    disabled={isGenerating || !phoneNumber.trim()}
+                    className={`${primaryButtonClass} mt-4`}
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Requesting code…</span>
+                      </>
+                    ) : (
+                      <>
+                        <Link2 className="h-4 w-4" />
+                        <span>Generate pairing code</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* Pairing code / connected */}
+              {(liveStatus === 'verifying' || liveStatus === 'connected') && code && (
+                <div>
+                  <div className="text-center">
+                    <span className="select-all font-mono text-[32px] font-semibold tracking-[0.12em] text-[#F5F5F5] sm:text-[46px] sm:tracking-[0.16em]">
+                      {code}
+                    </span>
+                    <p className="mt-2.5 font-mono text-[12px] text-[#9B9BA3]">
+                      {liveStatus === 'connected' ? (
+                        <span className="font-semibold text-[#22C55E]">Linked</span>
+                      ) : (
+                        <>
+                          Valid for{' '}
+                          <span className="font-semibold text-[#FFA51C]">
+                            {formatTimer(expiresIn)}
+                          </span>
+                        </>
+                      )}
                     </p>
                   </div>
-                ) : (
-                  <>
-                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+
+                  {liveStatus === 'connected' ? (
+                    <div className="mt-5 space-y-4">
+                      <div className="flex items-start gap-2.5">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#22C55E]" />
+                        <div className="min-w-0">
+                          <p className="text-[13.5px] font-semibold text-[#F5F5F5]">
+                            Device linked to {botName}
+                          </p>
+                          <p className="mt-1 text-[12.5px] leading-relaxed text-[#9B9BA3]">
+                            Session saved at {connectedAt}. Start the bot with{' '}
+                            <span className="font-mono text-[#C9C9D1]">node index.js</span>.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleReset}
+                        className={`${ghostButtonClass} w-full`}
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        Pair another device
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                       <button
                         type="button"
                         onClick={handleCopy}
-                        className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#FFA51C] px-4 text-sm font-semibold text-[#090A0C] transition hover:bg-[#FFB53F]"
+                        className={`${primaryButtonClass} sm:flex-1`}
                       >
                         {copied ? (
                           <>
                             <Check className="h-4 w-4" />
-                            <span>Copied!</span>
+                            <span>Copied</span>
                           </>
                         ) : (
                           <>
                             <Copy className="h-4 w-4" />
-                            <span>Copy Code</span>
+                            <span>Copy code</span>
                           </>
                         )}
                       </button>
@@ -416,82 +415,59 @@ export function PairingPortal({
                         type="button"
                         onClick={handleGenerate}
                         disabled={isGenerating}
-                        className="flex h-12 items-center justify-center gap-2 rounded-xl border border-white/10 px-5 text-sm font-medium text-[#C9C9D1] transition hover:border-white/20 hover:text-[#F5F5F5] disabled:cursor-not-allowed disabled:opacity-50"
+                        className={`${ghostButtonClass} w-full sm:w-auto`}
                       >
                         <RotateCcw className="h-4 w-4" />
-                        Get New Code
+                        New code
                       </button>
                     </div>
-
-                    <p className="mt-4 text-xs leading-relaxed text-[#9B9BA3]">
-                      Open WhatsApp → <span className="text-[#C9C9D1]">Linked Devices</span> →{' '}
-                      <span className="text-[#C9C9D1]">Link with phone number</span> and enter the
-                      code above. This page updates automatically once WhatsApp links the device.
-                    </p>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Error */}
-            {liveStatus === 'error' && (
-              <div className="mt-7 space-y-4">
-                <div className="flex gap-3 rounded-xl border border-red-500/25 bg-red-500/[0.06] p-4">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
-                  <div className="text-xs leading-relaxed">
-                    <p className="font-semibold text-[#F5F5F5]">WhatsApp did not complete the link</p>
-                    <p className="mt-1 text-[#9B9BA3]">{error || 'Unknown pairing error.'}</p>
-                  </div>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={handleGenerate}
-                  className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#FFA51C] px-4 text-sm font-semibold text-[#090A0C] transition hover:bg-[#FFB53F]"
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  Request a New Code
-                </button>
-              </div>
-            )}
-          </section>
+              )}
 
-          {/* Vertical divider + right: how to link */}
-          <section
-            id="how-to"
-            className="border-t border-white/10 pt-10 lg:border-l lg:border-t-0 lg:pl-16 lg:pt-0"
-          >
-            <div className="flex items-center gap-3">
-              <BookOpen className="h-6 w-6 text-[#FFA51C]" />
-              <h2 className="text-xl font-semibold tracking-tight">How to Link</h2>
-            </div>
-            <p className="mt-2 text-sm text-[#9B9BA3]">
-              Follow these simple steps to connect your WhatsApp device.
-            </p>
-
-            <ol className="mt-7 space-y-6">
-              {STEPS.map((s, i) => (
-                <li key={s.title} className="flex gap-4">
-                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#FFA51C] text-[13px] font-semibold text-[#FFA51C]">
-                    {i + 1}
-                  </span>
-                  <div>
-                    <h3 className="text-[15px] font-semibold leading-snug text-[#F5F5F5]">
-                      {s.title}
-                    </h3>
-                    <p className="mt-1 text-[13px] leading-relaxed text-[#9B9BA3]">{s.desc}</p>
+              {/* Error */}
+              {liveStatus === 'error' && (
+                <div>
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+                    <div className="min-w-0">
+                      <p className="text-[13.5px] font-semibold text-[#F5F5F5]">
+                        {isExpired ? 'Code expired' : 'Pairing failed'}
+                      </p>
+                      <p className="mt-1 text-[12.5px] leading-relaxed text-[#9B9BA3]">
+                        {error || 'Unknown pairing error.'}
+                      </p>
+                    </div>
                   </div>
-                </li>
-              ))}
-            </ol>
-          </section>
+                  <button
+                    type="button"
+                    onClick={handleGenerate}
+                    disabled={isGenerating}
+                    className={`${primaryButtonClass} mt-4`}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Request a new code
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Helper / guide zone */}
+            <div
+              id="help"
+              className="mt-5 scroll-mt-28 border-t border-white/[0.08] pt-4 text-[12.5px] leading-relaxed text-[#9B9BA3]"
+            >
+              {helperText}
+            </div>
+          </div>
         </div>
       </main>
 
-      {/* Footer */}
-      <footer id="about" className="mx-auto mt-14 max-w-[1400px] px-6 sm:mt-16 sm:px-10 lg:px-16">
-        <div className="flex flex-col items-center justify-between gap-3 border-t border-white/10 py-6 text-xs text-[#6E6E76] sm:flex-row">
-          <div className="flex items-center gap-4">
-            <span className="font-medium text-[#9B9BA3]">Kuzmix-MD</span>
+      {/* Understated footer */}
+      <footer className="px-5 pb-6 sm:px-6">
+        <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-2 border-t border-white/[0.08] pt-5 text-[11.5px] text-[#6E6E76] sm:flex-row">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-[#9B9BA3]">{botName}</span>
             <span>v1.0</span>
             <span className="text-white/15">|</span>
             <span>{organization}</span>

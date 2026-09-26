@@ -56,6 +56,16 @@ if (useDev) {
 const app = next({ dev: useDev, dir: PORTAL_DIR });
 const handle = app.getRequestHandler();
 
+// Prepare Next.js immediately. Portal requests below WAIT on this promise —
+// delegating before prepare() resolves throws "prepare() must be called".
+const portalReady = app.prepare().then(() => {
+  console.log('[BOOT] ✅ Next.js pairing portal ready');
+  console.log('[BOOT] Both services are now running!');
+});
+portalReady.catch(err => {
+  console.error('[BOOT] ⚠️ Next.js prepare failed:', err && err.message);
+});
+
 // Start HTTP server IMMEDIATELY — health check works even while Next.js is building
 const server = createServer((req, res) => {
   const parsedUrl = parse(req.url, true);
@@ -66,19 +76,21 @@ const server = createServer((req, res) => {
     return res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
   }
 
-  // Once Next.js is ready, delegate to it
-  handle(req, res, parsedUrl);
+  // Delegate to Next.js once prepared; until then the request queues.
+  portalReady
+    .then(() => handle(req, res, parsedUrl))
+    .catch(err => {
+      console.error('[BOOT] Portal request failed:', err && err.message);
+      if (!res.headersSent) {
+        res.writeHead(503, { 'Content-Type': 'text/plain' });
+        res.end('Portal is starting up. Please retry in a few seconds.');
+      }
+    });
 }).listen(PORT, '0.0.0.0', () => {
   console.log(`[BOOT] ✅ HTTP server running on http://0.0.0.0:${PORT}`);
   console.log(`[BOOT]    Health: http://localhost:${PORT}/health`);
   console.log(`[BOOT]    Portal: http://localhost:${PORT}/pair`);
   console.log('');
-});
-
-// Prepare Next.js in background — portal becomes available once built
-app.prepare().then(() => {
-  console.log('[BOOT] ✅ Next.js pairing portal ready');
-  console.log('[BOOT] Both services are now running!');
 });
 
 // Graceful shutdown

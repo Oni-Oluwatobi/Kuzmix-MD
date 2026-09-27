@@ -16,6 +16,7 @@ module.exports = {
   async execute(ctx) {
     const { sock, msg, from, reply, args, config } = ctx;
     const { getBuffer } = require('../lib/httpClient');
+    const { toWhatsAppVoice, looksLikeAudio } = require('../lib/voice');
     const name = 'say';
     const syntax = '.say Hello from Nigeria';
     const example = '.say Hello from Nigeria';
@@ -64,11 +65,21 @@ module.exports = {
           throw new Error('TTS returned an empty audio buffer.');
         }
 
-        return await sock.sendMessage(
-          from,
-          { audio: buffer, mimetype: 'audio/mpeg', ptt: true },
-          { quoted: msg }
-        );
+        if (!looksLikeAudio(buffer)) {
+          throw new Error('TTS returned non-audio data.');
+        }
+
+        // WhatsApp voice notes must be OGG/Opus — MP3 with ptt:true produces
+        // an undecodable "empty" voice note on most clients.
+        let payload;
+        try {
+          const voice = await toWhatsAppVoice(buffer);
+          payload = { audio: voice.buffer, mimetype: voice.mimetype, ptt: true };
+        } catch (_) {
+          payload = { audio: buffer, mimetype: 'audio/mpeg', ptt: false };
+        }
+
+        return await sock.sendMessage(from, payload, { quoted: msg });
       } catch (err) {
         lastError = err;
         console.warn(`[SAY] ${source.name} failed, trying next source:`, err.message);

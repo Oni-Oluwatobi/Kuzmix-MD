@@ -36,6 +36,10 @@ const preserveList = new Set([
   'groupinfo',
   'tagall',
   'joke',
+  'say',
+  'play',
+  'speak',
+  'aivoice',
 ]);
 
 function escapeQuotes(str) {
@@ -426,12 +430,25 @@ function getExecutionLogic(cmd) {
 
     await reply('🎙️ *Synthesizing voice audio...*');
     try {
+      const { toWhatsAppVoice, looksLikeAudio, detectAudioMime } = require('../lib/voice');
       const ttsUrl = \`https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=\${encodeURIComponent(text.slice(0, 200))}\`;
       const buffer = await getBuffer(ttsUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
         timeout: 10000,
       });
-      return await sock.sendMessage(from, { audio: buffer, mimetype: 'audio/mp4', ptt: true }, { quoted: msg });
+      let payload = null;
+      if (looksLikeAudio(buffer)) {
+        try {
+          const voice = await toWhatsAppVoice(buffer);
+          payload = { audio: voice.buffer, mimetype: voice.mimetype, ptt: true };
+        } catch (_) {
+          payload = { audio: buffer, mimetype: detectAudioMime(buffer), ptt: false };
+        }
+      }
+      if (!payload) {
+        return reply(\`🔊 *Voice Output:* TTS returned non-audio data. Try again shortly.\`);
+      }
+      return await sock.sendMessage(from, payload, { quoted: msg });
     } catch (err) {
       return reply(\`🔊 *Voice Output:* "\${text}"\\n\\nVoice synthesized successfully.\\n\\n_\${config.watermark}_\`);
     }

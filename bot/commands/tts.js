@@ -42,6 +42,7 @@ module.exports = {
 
     try {
       const { getBuffer } = require('../lib/httpClient');
+      const { toWhatsAppVoice, looksLikeAudio, detectAudioMime } = require('../lib/voice');
       const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${encodeURIComponent(lang)}&q=${encodeURIComponent(text)}`;
 
       const buffer = await getBuffer(ttsUrl, {
@@ -49,15 +50,21 @@ module.exports = {
         timeout: 10000,
       });
 
-      await sock.sendMessage(
-        from,
-        {
-          audio: buffer,
-          mimetype: 'audio/mp4',
-          ptt: true, // Send as voice note waveform
-        },
-        { quoted: msg }
-      );
+      if (!looksLikeAudio(buffer)) {
+        return reply('⚠️ *Failed to generate voice note:* TTS returned non-audio data.');
+      }
+
+      // WhatsApp voice notes must be OGG/Opus. Raw MP3 with ptt:true shows up
+      // as an undecodable "empty" voice note ("cannot play this audio file").
+      let payload;
+      try {
+        const voice = await toWhatsAppVoice(buffer);
+        payload = { audio: voice.buffer, mimetype: voice.mimetype, ptt: true };
+      } catch (_) {
+        payload = { audio: buffer, mimetype: detectAudioMime(buffer), ptt: false };
+      }
+
+      await sock.sendMessage(from, payload, { quoted: msg });
     } catch (err) {
       console.error('[TTS CMD ERROR]', err.message);
       await reply(`⚠️ *Failed to generate voice note:* ${err.message}`);

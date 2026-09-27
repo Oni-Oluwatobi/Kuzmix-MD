@@ -40,20 +40,27 @@ module.exports = {
 
     try {
       const buffer = await downloadYoutubeAudio(meta);
+      const { toWhatsAppVoice, looksLikeAudio, detectAudioMime } = require('../lib/voice');
 
       if (!buffer || buffer.length === 0) {
         return reply(`❌ *Download failed:* YouTube returned an empty audio stream for "${meta.title}".`);
       }
 
-      await sock.sendMessage(
-        from,
-        {
-          audio: buffer,
-          mimetype: 'audio/mp4',
-          ptt: true,
-        },
-        { quoted: msg }
-      );
+      if (!looksLikeAudio(buffer)) {
+        return reply(`❌ *Download failed:* the audio stream for "${meta.title}" was corrupted. Try another query.`);
+      }
+
+      // Send as a regular audio message (music), never as ptt with a wrong
+      // mimetype — both caused unplayable files before.
+      let payload;
+      try {
+        const voice = await toWhatsAppVoice(buffer, { music: true });
+        payload = { audio: voice.buffer, mimetype: voice.mimetype, ptt: false };
+      } catch (_) {
+        payload = { audio: buffer, mimetype: detectAudioMime(buffer), ptt: false };
+      }
+
+      await sock.sendMessage(from, payload, { quoted: msg });
 
       return reply(formatMetadataCard(meta, config));
     } catch (err) {

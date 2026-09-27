@@ -19,6 +19,13 @@ try {
 
 const https = require('https');
 const http = require('http');
+const path = require('path');
+const os = require('os');
+const fs = require('fs');
+const { spawn } = require('child_process');
+
+const UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 const COBALT_INSTANCES = [
   'https://co.otomir23.me',
@@ -232,7 +239,10 @@ async function downloadFromCobalt(url, downloadMode) {
           throw new Error(cobaltError(parsed, res.status));
         }
 
-        const buffer = await requestBuffer(fileUrl, { timeoutMs: 90000 });
+        const buffer = await requestBuffer(fileUrl, {
+          headers: { 'User-Agent': UA, 'Accept': '*/*' },
+          timeoutMs: 90000,
+        });
         if (!buffer.length || buffer.length < 512) {
           throw new Error('downloaded file is empty');
         }
@@ -249,6 +259,187 @@ async function downloadFromCobalt(url, downloadMode) {
   }
 
   throw new Error(`All Cobalt instances failed — ${errors.join(' | ')}`);
+}
+
+// --- yt-dlp fallback (most reliable on server IPs where YouTube bot-checks
+// ytdl-core and cobalt instances go down). Downloads the standalone binary
+// once per boot and caches it in the OS temp dir. ---
+const YTDLP_ASSET =
+  process.platform === 'win32'
+    ? 'yt-dlp.exe'
+    : process.platform === 'darwin'
+      ? 'yt-dlp_macos'
+      : 'yt-dlp_linux';
+const YTDLP_URL = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${YTDLP_ASSET}`;
+
+let ytdlpPathPromise = null;
+
+function ytDlpOnPath() {
+  return new Promise((resolve) => {
+    const probe = spawn('yt-dlp', ['--version'], { stdio: 'ignore', windowsHide: true });
+    probe.on('error', () => resolve(false));
+    probe.on('exit', (code) => resolve(code === 0));
+  });
+}
+
+async function ensureYtDlp() {
+  if (process.env.YTDLP_PATH) return process.env.YTDLP_PATH;
+  if (!ytdlpPathPromise) {
+    ytdlpPathPromise = (async () => {
+      if (await ytDlpOnPath()) return 'yt-dlp';
+
+      const dir = path.join(os.tmpdir(), 'kuzmix-md');
+      const bin = path.join(dir, YTDLP_ASSET);
+      if (fs.existsSync(bin) && fs.statSync(bin).size > 1024 * 1024) {
+        return bin;
+      }
+
+      console.log('[YTDLP] downloading standalone binary...');
+      const buf = await requestBuffer(YTDLP_URL, {
+        headers: { 'User-Agent': UA },
+        timeoutMs: 120000,
+        maxBytes: 150 * 1024 * 1024,
+      });
+      if (buf.length < 1024 * 1024) {
+        throw new Error('yt-dlp binary download looks truncated');
+      }
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(bin, buf);
+      if (process.platform !== 'win32') fs.chmodSync(bin, 0o755);
+      console.log(`[YTDLP] ready at ${bin} (${buf.length} bytes)`);
+      return bin;
+    })().catch((err) => {
+      ytdlpPathPromise = null;
+      throw err;
+    });
+  }
+  return ytdlpPathPromise;
+}
+
+function runYtDlpToBuffer(bin, args, timeoutMs, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(bin, args, { windowsHide: true });
+    const chunks = [];
+    let total = 0;
+    let stderr = '';
+    let settled = false;
+    const done = (fn, val) => {
+      if (!settled) {
+        settled = true;
+        fn(val);
+      }
+    };
+    const timer = setTimeout(() => {
+      try { proc.kill(); } catch (_) {}
+      done(reject, new Error('yt-dlp timed out'));
+    }, timeoutMs);
+    proc.stdout.on('data', (c) => {
+      total += c.length;
+      if (total > maxBytes) {
+        try { proc.kill(); } catch (_) {}
+        done(reject, new Error('download exceeds size limit'));
+        return;
+      }
+      chunks.push(c);
+    });
+    proc.stderr.on('data', (c) => {
+      if (stderr.length < 4000) stderr += c.toString('utf8');
+    });
+    proc.on('error', (e) => {
+      clearTimeout(timer);
+      done(reject, e);
+    });
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        const buf = Buffer.concat(chunks);
+        if (buf.length < 512) {
+          done(reject, new Error('yt-dlp produced empty output'));
+        } else {
+          done(resolve, buf);
+        }
+      } else {
+        const tail = stderr.split('\n').filter(Boolean).slice(-2).join(' | ').slice(0, 300);
+        done(reject, new Error(`yt-dlp exited ${code}: ${tail || 'no output'}`));
+      }
+    });
+  });
+}
+
+async function runYtDlpToFile(bin, args, timeoutMs) {
+  const tmp = path.join(os.tmpdir(), `kuzmix-dl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`);
+  try {
+    await new Promise((resolve, reject) => {
+      const proc = spawn(bin, [...args, '-o', tmp], { windowsHide: true });
+      let stderr = '';
+      let settled = false;
+      const done = (fn, val) => {
+        if (!settled) {
+          settled = true;
+          fn(val);
+        }
+      };
+      const timer = setTimeout(() => {
+        try { proc.kill(); } catch (_) {}
+        done(reject, new Error('yt-dlp timed out'));
+      }, timeoutMs);
+      proc.stdout.resume();
+      proc.stderr.on('data', (c) => {
+        if (stderr.length < 4000) stderr += c.toString('utf8');
+      });
+      proc.on('error', (e) => {
+        clearTimeout(timer);
+        done(reject, e);
+      });
+      proc.on('close', (code) => {
+        clearTimeout(timer);
+        if (code === 0) done(resolve);
+        else {
+          const tail = stderr.split('\n').filter(Boolean).slice(-2).join(' | ').slice(0, 300);
+          done(reject, new Error(`yt-dlp exited ${code}: ${tail || 'no output'}`));
+        }
+      });
+    });
+    const buf = fs.readFileSync(tmp);
+    if (buf.length < 512) throw new Error('yt-dlp produced empty output');
+    if (buf.length > 100 * 1024 * 1024) throw new Error('video exceeds WhatsApp size limit');
+    return buf;
+  } finally {
+    try { fs.unlinkSync(tmp); } catch (_) {}
+  }
+}
+
+async function downloadFromYtDlp(url, downloadMode) {
+  const bin = await ensureYtDlp();
+
+  if (downloadMode === 'auto') {
+    return runYtDlpToFile(
+      bin,
+      [
+        '--no-playlist',
+        '--no-warnings',
+        '--no-part',
+        '-f',
+        'bv*[height<=720][ext=mp4]+ba[ext=m4a]/bv*[height<=720]/b[ext=mp4]/b',
+        '--merge-output-format',
+        'mp4',
+        url,
+      ],
+      300000
+    );
+  }
+
+  const buf = await runYtDlpToBuffer(
+    bin,
+    ['--no-playlist', '--no-warnings', '--no-part', '-f', 'bestaudio/best', '-o', '-', url],
+    180000,
+    60 * 1024 * 1024
+  );
+  const { looksLikeAudio } = require('./voice');
+  if (!looksLikeAudio(buf)) {
+    throw new Error('yt-dlp output is not valid audio');
+  }
+  return buf;
 }
 
 async function downloadFromYtdl(url) {
@@ -299,7 +490,13 @@ async function downloadWithFallback(url, downloadMode) {
     attempts.push(`cobalt: ${err.message}`);
   }
 
-  // ytdl only serves direct audio; the video path stays cobalt-only.
+  try {
+    return await downloadFromYtDlp(url, downloadMode);
+  } catch (err) {
+    attempts.push(`yt-dlp: ${err.message}`);
+  }
+
+  // ytdl-core only serves audio and is last (bot-checks server IPs).
   if ((downloadMode || 'audio') === 'audio') {
     try {
       return await downloadFromYtdl(url);
@@ -338,6 +535,8 @@ module.exports = {
   downloadYoutubeAudio,
   downloadYoutubeVideo,
   formatMetadataCard,
+  _downloadFromYtDlp: downloadFromYtDlp,
+  _runYtDlpToBuffer: runYtDlpToBuffer,
   _streamToBuffer: streamToBuffer,
   _requestBuffer: requestBuffer,
 };

@@ -40,6 +40,11 @@ const preserveList = new Set([
   'play',
   'speak',
   'aivoice',
+  'audio',
+  'music',
+  'song',
+  'video',
+  'transcribe',
 ]);
 
 function escapeQuotes(str) {

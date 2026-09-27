@@ -30,8 +30,9 @@ const config = {
     .filter(Boolean),
 
   mode: process.env.BOT_MODE || 'public',
-  privateMode: envBool('PRIVATE_MODE', true),
-  publicMode: envBool('PUBLIC_MODE', false),
+  // Respond to everyone by default (owner can flip with .private / .public).
+  privateMode: envBool('PRIVATE_MODE', false),
+  publicMode: envBool('PUBLIC_MODE', true),
   strictMode: envBool('STRICT_MODE', true),
   unknownCommandMode: process.env.UNKNOWN_MODE || 'silent',
   sessionDir: sessionDirectory,
@@ -48,8 +49,8 @@ const config = {
   groupInviteCode: process.env.GROUP_INVITE_CODE || 'IbvPjkzu0Rq69XgmwiAHMA',
 
   resetSafetyFlags() {
-    this.privateMode = envBool('PRIVATE_MODE', true);
-    this.publicMode = envBool('PUBLIC_MODE', false);
+    this.privateMode = envBool('PRIVATE_MODE', false);
+    this.publicMode = envBool('PUBLIC_MODE', true);
     this.strictMode = envBool('STRICT_MODE', true);
   },
 };

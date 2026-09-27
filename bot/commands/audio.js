@@ -48,20 +48,27 @@ module.exports = {
 
     try {
       const buffer = await downloadYoutubeAudio(meta);
+      const { toWhatsAppVoice, looksLikeAudio, detectAudioMime } = require('../lib/voice');
 
       if (!buffer || buffer.length === 0) {
         return reply(`❌ *Download failed:* Empty audio stream for "${meta.title}".`);
       }
 
-      await sock.sendMessage(
-        from,
-        {
-          audio: buffer,
-          mimetype: 'audio/mp4',
-          ptt: false,
-        },
-        { quoted: msg }
-      );
+      if (!looksLikeAudio(buffer)) {
+        return reply(`❌ *Download failed:* the audio stream for "${meta.title}" was corrupted. Try another query.`);
+      }
+
+      // OGG/Opus with the real mimetype — audio/mp4 on mp3 data made
+      // undecodable files on some clients.
+      let payload;
+      try {
+        const voice = await toWhatsAppVoice(buffer, { music: true });
+        payload = { audio: voice.buffer, mimetype: voice.mimetype, ptt: false };
+      } catch (_) {
+        payload = { audio: buffer, mimetype: detectAudioMime(buffer), ptt: false };
+      }
+
+      await sock.sendMessage(from, payload, { quoted: msg });
 
       return reply(formatMetadataCard(meta, config));
     } catch (err) {

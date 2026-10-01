@@ -7,8 +7,47 @@ function normalizePhone(input: string): string {
   return String(input || '').replace(/\D/g, '');
 }
 
+// --- In-memory rate limiter (single-instance deployment) ---
+const RATE_WINDOW_MS = 60_000;
+const hitLog = new Map<string, number[]>();
+
+function allow(key: string, maxPerMinute: number): boolean {
+  const now = Date.now();
+  const hits = (hitLog.get(key) || []).filter((t) => now - t < RATE_WINDOW_MS);
+  if (hits.length >= maxPerMinute) {
+    hitLog.set(key, hits);
+    return false;
+  }
+  hits.push(now);
+  hitLog.set(key, hits);
+  if (hitLog.size > 2000) {
+    for (const [k, v] of hitLog) {
+      if (v.every((t) => now - t >= RATE_WINDOW_MS)) hitLog.delete(k);
+    }
+  }
+  return true;
+}
+
+function clientIp(req: NextRequest): string {
+  const fwd = req.headers.get('x-forwarded-for');
+  if (fwd) return fwd.split(',')[0].trim();
+  return req.headers.get('x-real-ip') || 'unknown';
+}
+
+function tooMany(ip: string) {
+  return NextResponse.json(
+    { error: 'Too many requests. Please wait a moment and try again.' },
+    { status: 429 }
+  );
+}
+
+// Cap concurrent Baileys pairing sockets (each holds memory + a temp
+// credential dir; an unbounded count lets anyone exhaust the instance).
+const MAX_ACTIVE_PAIRINGS = 6;
+
 export async function POST(req: NextRequest) {
   try {
+    const ip = clientIp(req);
     const body = await req.json().catch(() => ({}) as Record<string, unknown>);
     const { phone, action = 'generate' } = body as { phone?: string; action?: string };
 
@@ -24,6 +63,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'check') {
+      if (!allow(`chk:${ip}`, 60)) return tooMany(ip);
       const session = getSession(cleanPhone);
       if (!session) {
         return NextResponse.json({ phone: cleanPhone, status: 'idle', exists: false });
@@ -42,12 +82,30 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'clear') {
+      if (!allow(`clr:${ip}`, 6)) return tooMany(ip);
+      const session = getSession(cleanPhone);
+      // Never tear down a pairing that is actively requesting a code —
+      // that was the unauthenticated mid-flight DoS vector.
+      if (session && session.status === 'requesting') {
+        return NextResponse.json(
+          { error: 'A pairing request is in progress for this number. Please wait a few seconds.' },
+          { status: 409 }
+        );
+      }
       const { cleanupSession } = await import('@/lib/pairing/connection');
       cleanupSession(cleanPhone, 'Cleared by user');
       return NextResponse.json({ success: true, phone: cleanPhone, status: 'idle' });
     }
 
     // Default: generate a real Baileys pairing code
+    if (!allow(`gen:${ip}`, 5)) return tooMany(ip);
+    if (getActiveSessionCount() >= MAX_ACTIVE_PAIRINGS) {
+      return NextResponse.json(
+        { error: 'The pairing service is busy right now. Please try again in a minute.' },
+        { status: 429 }
+      );
+    }
+
     const result = await requestPairing(cleanPhone);
 
     if (!result.success) {
@@ -83,20 +141,26 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to process pairing';
+    // Log details server-side only; never echo internals to the client.
     console.error('[PAIRING API ERROR]', err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Something went wrong while processing the pairing request. Please try again.' },
+      { status: 500 }
+    );
   }
 }
 
 export async function GET(req: NextRequest) {
+  const ip = clientIp(req);
+  if (!allow(`get:${ip}`, 60)) return tooMany(ip);
+
   const phone = normalizePhone(req.nextUrl.searchParams.get('phone') || '');
   if (!phone || phone.length < 8) {
-    return NextResponse.json({ status: 'idle', exists: false, activeSessions: getActiveSessionCount() });
+    return NextResponse.json({ status: 'idle', exists: false });
   }
   const session = getSession(phone);
   if (!session) {
-    return NextResponse.json({ phone, status: 'idle', exists: false, activeSessions: getActiveSessionCount() });
+    return NextResponse.json({ phone, status: 'idle', exists: false });
   }
   return NextResponse.json({
     phone,
@@ -107,6 +171,5 @@ export async function GET(req: NextRequest) {
     disconnectReason: session.disconnectReason ?? null,
     expiresIn: session.expiresIn,
     sessionId: session.status === 'connected' ? `KUZMIX-MD~${phone}~CONNECTED` : null,
-    activeSessions: getActiveSessionCount(),
   });
 }

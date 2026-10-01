@@ -3,6 +3,7 @@ process.env.WS_NO_BUFFER_UTIL = '1';
 
 const { DisconnectReason } = require('@whiskeysockets/baileys');
 const fs = require('fs');
+const path = require('path');
 const config = require('../config');
 
 class ConnectionHandler {
@@ -101,10 +102,25 @@ class ConnectionHandler {
       if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
         this.clearReconnect(sessionId);
         console.error('[KUZMIX] ❌ Session has been permanently unlinked by WhatsApp.');
-        console.error(`[KUZMIX] 🧹 Removing dead session at: ${config.sessionDir}`);
         try {
-          fs.rmSync(config.sessionDir, { recursive: true, force: true });
-          console.error('[KUZMIX] ✅ Dead session cleared. Re-pair using: node index.js pair <phoneNumber>');
+          if (sessionId && sessionId !== 'default' && /^\d+$/.test(sessionId)) {
+            // Remove ONLY this account's directory — never the sessions root,
+            // which holds every other paired account.
+            const deadSession = path.join(config.sessionsRoot, sessionId);
+            fs.rmSync(deadSession, { recursive: true, force: true });
+            console.error(`[KUZMIX] ✅ Dead session cleared for +${sessionId}. Re-pair via /pair.`);
+          } else {
+            // Legacy flat session: clear credential files but keep the
+            // sessions/ subfolder (all multi-device accounts) intact.
+            if (fs.existsSync(config.sessionDir)) {
+              for (const entry of fs.readdirSync(config.sessionDir, { withFileTypes: true })) {
+                if (entry.isFile()) {
+                  fs.unlinkSync(path.join(config.sessionDir, entry.name));
+                }
+              }
+            }
+            console.error('[KUZMIX] ✅ Legacy session credentials cleared (other accounts kept).');
+          }
         } catch (cleanErr) {
           console.error('[KUZMIX] ⚠️  Could not clear session:', cleanErr.message);
         }

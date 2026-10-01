@@ -182,7 +182,6 @@ async function main() {
   }
 
   // Normal startup: check for any sessions
-  const { getPhoneDir } = require('./bot');
   const sessionsRoot = config.sessionsRoot;
   let hasSessions = false;
 
@@ -201,7 +200,13 @@ async function main() {
     console.log('Waiting for session credentials...\n');
   }
 
-  require('./main');
+  // Actually start the bot (main.js only auto-starts when run directly)
+  const mainModule = require('./main');
+  if (hasSessions) {
+    mainModule.startBotWithRetry();
+  } else {
+    mainModule.watchForSession();
+  }
 }
 
 main().catch(err => console.error('[FATAL]', err));
